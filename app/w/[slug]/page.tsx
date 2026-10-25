@@ -1,0 +1,9 @@
+import type { Metadata } from "next";
+
+// Public wedding website, rendered on the server. Built in Phase 7.
+export const metadata: Metadata = { robots: { index: false, follow: false } };
+
+export default async function WeddingWebsitePage(props: PageProps<"/w/[slug]">) {
+  const { slug } = await props.params;
+  return <h1 className="font-display text-4xl">Wedding website: {slug}</h1>;
+}
