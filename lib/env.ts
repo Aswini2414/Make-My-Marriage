@@ -40,5 +40,7 @@ let r2: z.infer<typeof r2Schema> | undefined;
 let mail: z.infer<typeof mailSchema> | undefined;
 
 export const coreEnv = () => (core ??= parse(coreSchema, "core"));
+/** APP_URL alone, for pages that need the address but nothing secret, such as metadata. */
+export const appUrl = () => parse(coreSchema.pick({ APP_URL: true }), "core").APP_URL;
 export const r2Env = () => (r2 ??= parse(r2Schema, "R2"));
 export const mailEnv = () => (mail ??= parse(mailSchema, "email"));

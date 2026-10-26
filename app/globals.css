@@ -9,6 +9,7 @@
   --color-*: initial;
 
   --color-ivory: #faf8f5; /* page background */
+  --color-ivory-deep: #f3efe9; /* footer band */
   --color-surface: #ffffff; /* cards */
   --color-lilac: #efeaf3; /* soft tint sections, active nav item, info notes */
   --color-plum: #2a1b3d; /* brand: primary buttons, active states, key numbers */
@@ -16,8 +17,20 @@
   --color-ink: #17141c; /* main text */
   --color-ink-secondary: #6b6474; /* supporting text */
   --color-ink-body: #4a4452; /* body text inside cards */
+  --color-ink-subtle: #9b94a4; /* fine print */
   --color-champagne: #c8a97e; /* accent only: small labels, thin dividers, small icons */
+  --color-champagne-deep: #8b6b3e; /* champagne text that must stay readable on ivory */
+  --color-champagne-light: #eadbce; /* champagne text on plum */
+  --color-champagne-tint: #faf4ec; /* faint champagne wash */
   --color-border: #e4dee8; /* all hairline borders */
+
+  /* Landing page phone mockups only: gallery tile tints and the camera notch. */
+  --color-sand: #eae3d9;
+  --color-mist: #e5dee8;
+  --color-linen: #f2ece7;
+  --color-heather: #e0d7e4;
+  --color-black: #000000;
+  --color-pearl: #f5efeb; /* far end of the gold-foil button gradient */
 
   --color-error: #9b3b3b;
   --color-error-bg: #f6ecec;
@@ -37,6 +50,16 @@
   --radius-card: 12px;
 
   --shadow-card: 0 1px 2px rgb(23 20 28 / 0.04);
+}
+
+/*
+ * Landing page only (app/(marketing)): its Stitch design uses Cormorant Garamond and
+ * Plus Jakarta Sans. Redefining the two font tokens lets shared components follow along.
+ */
+@utility font-landing {
+  --font-display: var(--font-cormorant), Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 
 /* Small labels: uppercase, letter-spaced, champagne. */

@@ -19,7 +19,8 @@ Read @AGENTS.md: this is Next.js 16. Check `node_modules/next/dist/docs/` before
 
 ## Structure
 
-- `app/` holds routes only. Pages: `(auth)`, `(dashboard)`, `w/[slug]`, `i/[token]`, `u/[token]`. API: `app/api/<module>/`.
+- `app/` holds routes only. Pages: `(marketing)` (the landing page at `/`), `(auth)`, `(dashboard)`, `w/[slug]`, `i/[token]`, `u/[token]`. API: `app/api/<module>/`.
+- `/` is the landing page for visitors. `proxy.ts` sends anyone with a valid session to `/dashboard`. Its link preview is `app/(marketing)/opengraph-image.tsx`, which reads font subsets from `assets/og-fonts/`. `app/robots.ts` lets search engines list only `/`.
 - `modules/<module>/` holds `model.ts` (Mongoose), `schema.ts` (Zod) and `service.ts` (logic). Register each model in `lib/models.ts`.
 - Route handlers stay thin: `handler()` from `lib/api.ts` → `requireUser` / `requireMember` → Zod parse → service.
 - Files that hold secrets or touch the DB start with `import "server-only"`. `lib/session.ts` must stay importable by `proxy.ts`, so it has no DB or server-only imports.
@@ -64,6 +65,9 @@ Read @AGENTS.md: this is Next.js 16. Check `node_modules/next/dist/docs/` before
   - Champagne is an accent only.
   - Never use bright red, pink, green, yellow or blue.
 - Instrument Serif (`font-display`) is for headings and large numbers. Inter (`font-sans`, 400/500) is for everything else.
+- **Landing page exception** (approved): `app/(marketing)` follows its Stitch design, so it uses Cormorant Garamond and Plus Jakarta Sans (300–600). The `font-landing` utility swaps the two font tokens, so shared components follow along. Its shapes, radii and shadows follow Stitch exactly (for example `rounded-2xl` cards and the dashboard preview's `shadow-sm` cards) rather than the shape rules below. Colours still come only from `@theme`: tinted glows and shadows use `color-mix(in srgb, var(--color-…) N%, transparent)`.
+- Icons are Material Symbols (Outlined, 400), the set the Stitch designs use, copied as inline SVG into `components/icons.tsx`. No icon font or icon library.
+- Stitch screen designs (project "Make My Marriage Landing Page") are the visual reference. Where a design breaks a rule here, such as bright colours or desktop-only layouts, these rules win unless an exception is listed.
 - Shapes:
   - inputs `h-12 rounded-input` with a 1px border and a plum focus ring
   - cards `rounded-card border border-border`, with at most `shadow-card`

@@ -42,7 +42,7 @@ Photos are the one exception to everything going through the app. They upload st
 | Pages and UI | React pages for the dashboard and every module, the public wedding website, the guest invitation and RSVP page, and the QR upload page |
 | Route handlers | The API, under `/api`, grouped by module. Each handler validates input with Zod, checks access, then reads or writes data |
 | Shared library | Code every module uses: database connection, Mongoose models, JWT and password helpers, access checks, and the R2 and email clients |
-| Proxy (formerly middleware) | Runs before every request to logged-in pages, and sends anyone without a valid session to the login page |
+| Proxy (formerly middleware) | Runs before every request to logged-in pages, and sends anyone without a valid session to the login page. Also runs on `/`, sending anyone with a valid session to the dashboard |
 
 ### How a request flows
 
@@ -57,6 +57,7 @@ Photos are the one exception to everything going through the app. They upload st
 
 | Page | How it renders | Why |
 | --- | --- | --- |
+| Landing page (`/`) | Static, rebuilt once a day | Visitors who aren't logged in. It explains the product and links to sign-up and login |
 | Wedding website | On the server | Loads fast and shows a proper link preview when shared. Marked `noindex` so search engines skip it |
 | Guest invitation and RSVP page | On the server, using the token in the link | No login needed, and the guest sees only their own events |
 | QR upload page | On the server for the shell, then in the browser for uploads | Uploading and compressing happen in the browser |
@@ -69,6 +70,7 @@ Routes live in `app/`, as Next.js requires. Everything else is grouped by module
 ```
 make-my-marriage/
 ├── app/
+│   ├── (marketing)/            landing page at /, for visitors who aren't logged in
 │   ├── (auth)/                 login, signup, forgot and reset password, accept invite
 │   ├── (dashboard)/            logged-in area, protected by middleware
 │   │   ├── dashboard/

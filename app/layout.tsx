@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Instrument_Serif, Inter } from "next/font/google";
+import { appUrl } from "@/lib/env";
 import "./globals.css";
 
 const instrumentSerif = Instrument_Serif({
@@ -16,6 +17,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
+  // Lets link previews and other metadata use paths such as "/opengraph-image".
+  metadataBase: new URL(appUrl()),
   title: { default: "Make My Marriage", template: "%s · Make My Marriage" },
   description: "Plan your whole wedding in one place.",
 };

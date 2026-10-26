@@ -187,6 +187,7 @@ Vendors are found in two ways at no cost. No Google Cloud account or API is used
 
 ### 10. Accounts and access
 
+- A public landing page at the app's home address explains the product to visitors and links to sign up and log in. Logged-in members go straight to their dashboard.
 - Sign up and log in with name, email and password. Password reset by email.
 - Create a workspace, invite members and manage roles as set out in Users and roles.
 - A member list showing each person's role and status (invited or active).

@@ -1,3 +1,8 @@
+import type { Metadata } from "next";
+
+// Private wedding pages are never listed by search engines.
+export const metadata: Metadata = { robots: { index: false, follow: false } };
+
 // Logged-in area. proxy.ts redirects to /login without a session; the Sidebar and
 // PageHeader components replace this shell in Phase 1.
 export default function DashboardLayout({ children }: LayoutProps<"/">) {
