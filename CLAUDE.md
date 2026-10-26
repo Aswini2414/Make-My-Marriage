@@ -8,6 +8,12 @@ Read @AGENTS.md: this is Next.js 16. Check `node_modules/next/dist/docs/` before
 - Ask before contradicting them. If a decision changes, update the docs in the same change.
 - Build in the PRD's phase order. One phase at a time, in small steps.
 
+## Project status
+
+- **Start every session by reading `docs/project-status.md`.** It says what is built, what is next, and decisions made along the way.
+- **After finishing a feature, phase step or phase, update it in the same commit**: move the work to Done with its commit, update "At a glance" and "Next up", and refresh "Last updated". Record approved decisions and known issues there too.
+- It tracks progress only. It never overrides the design docs above.
+
 ## Stack (pinned, exact versions)
 
 - Next.js 16.4 App Router, React 19, TypeScript 6 (strict), Node 24.
@@ -78,3 +84,5 @@ Read @AGENTS.md: this is Next.js 16. Check `node_modules/next/dist/docs/` before
 ## Before saying a step is done
 
 Run `npm run typecheck && npm run lint && npm test`. Every new route gets a permission test: no session, a Manager calling an Admin route, and another wedding's ID.
+
+When a feature or phase step is finished, update `docs/project-status.md` before committing.

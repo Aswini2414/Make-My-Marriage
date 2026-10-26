@@ -1,3 +1,12 @@
+# Make My Marriage — agent instructions
+
+Project rules live in `CLAUDE.md`, and the design docs in `docs/` are the source of truth.
+
+## Project status
+
+- **Read `docs/project-status.md` at the start of every session.** It records what is built, what is next, and decisions made during the build.
+- **After finishing a feature, phase step or phase, update `docs/project-status.md` in the same commit**: move the work to Done with its commit, update "At a glance" and "Next up", refresh "Last updated", and add any approved decisions or known issues.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 ## This is NOT the Next.js you know
