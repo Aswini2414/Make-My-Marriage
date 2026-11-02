@@ -1,6 +1,6 @@
 # Make My Marriage — Project Status
 
-**Last updated:** Nov 2, 2026 · **Branch:** `dev` · **Last feature commit:** `0bba447` (landing page)
+**Last updated:** Nov 2, 2026 · **Branch:** `dev` · **Last feature commit:** `715c68d` (Phase 1)
 
 This file tracks how far the build has got. It is a progress log, not a design document: the PRD, system design, database design and API design stay the source of truth for _what_ to build. Read it at the start of every session, and update it whenever a feature or phase step is finished (see [How to update](#how-to-update-this-file)).
 
@@ -24,7 +24,7 @@ This file tracks how far the build has got. It is a progress log, not a design d
 
 ## Done
 
-### Phase 1, manual-test fixes (not committed yet)
+### Phase 1, manual-test fixes
 
 A manual end-to-end test found 15 problems; all are fixed and re-checked in Chrome on a production build.
 
@@ -39,7 +39,7 @@ A manual end-to-end test found 15 problems; all are fixed and re-checked in Chro
 - `next.config.ts` takes `NEXT_DIST_DIR`, so a production build can be tested while `next dev` runs.
 - Tests: 175 (13 new). Run the suite on a quiet machine: bcrypt-heavy tests time out at 5 s if a dev server and a browser are running too.
 
-### Phase 1, step 1E: members (not committed yet)
+### Phase 1, step 1E: members
 
 - API: `GET /api/members` (everyone; pending invites for Admins only), `POST /api/members/invites`, `POST /api/members/invites/:id/resend`, `DELETE /api/members/invites/:id`, `GET` and `POST /api/members/accept` (public, token is the credential), `PATCH` and `DELETE /api/members/:id`, `POST /api/members/leave`. Logic in `modules/members/service.ts`; the invite email is `modules/members/emails.ts`.
 - Rules enforced and tested: Admin-only routes answer 403 to a Manager, ids from another wedding answer 404, `ALREADY_MEMBER`, `IN_OTHER_WORKSPACE` (active membership or a pending invite elsewhere), `LAST_ADMIN`, `CREATOR_PROTECTED`, links work once and for 7 days, re-inviting an email replaces the earlier link, a failed email leaves no invite behind, a removed member loses access at once and can be invited back.
@@ -57,7 +57,7 @@ A manual end-to-end test found 15 problems; all are fixed and re-checked in Chro
 - `lib/page-access.ts` gives server pages the same checks as the API (`pageUser`, `pageMember`). A dead session (account deleted, or ended by a password change) is sent to `GET /api/auth/clear`, which removes the cookie and goes to `/login`, so the proxy's redirect from `/login` can't loop.
 - Tests: `tests/modules/weddings.test.ts` (slugs, create, race between two requests, permissions, other weddings' data, slug check) and a proxy test for `/onboarding`.
 - Checked in Chrome (about 55 checks, desktop and phone) and side by side with the Stitch screens.
-### Phase 1, step 1C: auth pages (not committed yet)
+### Phase 1, step 1C: auth pages
 
 - `/login`, `/signup`, `/forgot-password` and `/reset-password`, built to match the Stitch screens "Desktop Login", "Create Account (All States)" and "Forgot Password (All States)". Every state is covered: validation errors, email already used, too many attempts (inputs and button lock), email sent with resend, set new password, link expired.
 - Shared pieces: `components/auth/` (`AuthShell`, `panels`, `AuthHeading`, the four forms), `components/form/` (`TextField`, `PasswordField`, `FormBanner`, `SubmitButton`), `lib/api-client.ts` (`postJson`, `safeNext`, `waitText`). The forms reuse the Zod schemas from `modules/auth/schema.ts`, so the browser and server check the same rules.
@@ -66,7 +66,7 @@ A manual end-to-end test found 15 problems; all are fixed and re-checked in Chro
 - Tests: `tests/lib/api-client.test.ts`.
 - After a manual test pass (about 110 checks in Chrome, desktop and phone), fixed: password no longer reaches the URL if a form is submitted before JavaScript loads (`method="post"`), a flag stops double submits, small links and the show-password button have bigger tap areas (`tap-area` utility, 48px button), logged-in people are sent from `/login`, `/signup` and `/forgot-password` to `/dashboard` (reset links still open), and the "Log in instead" link no longer wraps.
 
-### Phase 1, steps 1A and 1B: models and auth API (not committed yet)
+### Phase 1, steps 1A and 1B: models and auth API
 
 - Mongoose models: `users`, `passwordResets` (`modules/auth/model.ts`), `memberships`, `memberInvites` (`modules/members/model.ts`), `weddings` (`modules/weddings/model.ts`), `rateLimits` (`lib/rate-limit.ts`), all registered in `lib/models.ts`, with the indexes from the database design.
 - `lib/rate-limit.ts` (`assertUnderLimit`, `recordHit`, `consume`) and the 450-a-day Gmail cap inside `sendMail()` (`EMAIL_CAP_REACHED`).
