@@ -21,12 +21,20 @@ export async function signSession(userId: string): Promise<string> {
     .sign(secret());
 }
 
-/** Returns the user ID, or null for a missing, expired or tampered token. */
-export async function verifySession(token: string | undefined): Promise<{ userId: string } | null> {
+/**
+ * Returns the user ID and when the token was issued (seconds since 1970), or null for a
+ * missing, expired or tampered token.
+ */
+export async function verifySession(
+  token: string | undefined,
+): Promise<{ userId: string; issuedAt: number } | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secret(), { algorithms: ["HS256"] });
-    return payload.sub ? { userId: payload.sub } : null;
+    // The subject must look like a Mongo ObjectId, so nothing odd reaches a query.
+    return payload.sub && payload.iat && /^[0-9a-f]{24}$/i.test(payload.sub)
+      ? { userId: payload.sub, issuedAt: payload.iat }
+      : null;
   } catch {
     return null;
   }

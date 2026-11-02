@@ -68,6 +68,14 @@ const DEFAULT_MESSAGES: Partial<Record<ErrorCode, string>> = {
   INVALID_CREDENTIALS: "Email or password is incorrect.",
   TOKEN_INVALID: "This link is invalid or has expired.",
   LINK_NOT_FOUND: "This link isn't valid.",
+  EMAIL_CAP_REACHED: "We've reached today's email limit. Please try again tomorrow.",
+  ALREADY_MEMBER: "This person is already a member.",
+  ALREADY_IN_WORKSPACE: "You're already part of a wedding workspace.",
+  IN_OTHER_WORKSPACE: "This email already belongs to another wedding workspace.",
+  LAST_ADMIN: "A wedding needs at least one Admin. Make someone else an Admin first.",
+  CREATOR_PROTECTED: "The person who created the wedding can't be removed.",
+  SLUG_TAKEN: "That address is already used by another wedding.",
+  SLUG_RESERVED: "That address is reserved. Try another.",
 };
 
 export type FieldErrors = Record<string, string>;

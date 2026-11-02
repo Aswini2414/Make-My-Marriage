@@ -41,6 +41,37 @@ describe("handler()", () => {
     }
   });
 
+  it("refuses a body over 100 KB with a validation error", async () => {
+    const res = await route(post({ email: "a@b.co", padding: "x".repeat(150_000) }), undefined);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatchObject({
+      code: "VALIDATION_FAILED",
+      message: "The request is too large.",
+    });
+  });
+
+  it("cuts off a body with no Content-Length once it passes 100 KB, counted in bytes", async () => {
+    // 40,000 three-byte characters are 120,000 bytes but only 40,000 characters long.
+    const body = JSON.stringify({ email: "a@b.co", padding: "€".repeat(40_000) });
+    const bytes = new TextEncoder().encode(body);
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(bytes.slice(0, 60_000));
+        controller.enqueue(bytes.slice(60_000));
+        controller.close();
+      },
+    });
+    const req = new NextRequest(`${APP}/api/test`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: APP },
+      body: stream,
+      duplex: "half",
+    } as RequestInit);
+    const res = await route(req, undefined);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toBe("The request is too large.");
+  });
+
   it("returns VALIDATION_FAILED with fields for bad input", async () => {
     const res = await route(post({ email: "bad-email" }), undefined);
     expect(res.status).toBe(400);

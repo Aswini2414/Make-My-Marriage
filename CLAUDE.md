@@ -70,7 +70,7 @@ Read @AGENTS.md: this is Next.js 16. Check `node_modules/next/dist/docs/` before
   - The page background is ivory and cards are surface. Plum is for primary actions, active states and key numbers.
   - Champagne is an accent only.
   - Never use bright red, pink, green, yellow or blue.
-- Instrument Serif (`font-display`) is for headings and large numbers. Inter (`font-sans`, 400/500) is for everything else.
+- Instrument Serif (`font-display`) is for headings and large numbers. Inter (`font-sans`, 400/500, plus 600 where a Stitch design uses semibold) is for everything else.
 - **Landing page exception** (approved): `app/(marketing)` follows its Stitch design, so it uses Cormorant Garamond and Plus Jakarta Sans (300–600). The `font-landing` utility swaps the two font tokens, so shared components follow along. Its shapes, radii and shadows follow Stitch exactly (for example `rounded-2xl` cards and the dashboard preview's `shadow-sm` cards) rather than the shape rules below. Colours still come only from `@theme`: tinted glows and shadows use `color-mix(in srgb, var(--color-…) N%, transparent)`.
 - Icons are Material Symbols (Outlined, 400), the set the Stitch designs use, copied as inline SVG into `components/icons.tsx`. No icon font or icon library.
 - Stitch screen designs (project "Make My Marriage Landing Page") are the visual reference. Where a design breaks a rule here, such as bright colours or desktop-only layouts, these rules win unless an exception is listed.

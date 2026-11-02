@@ -263,6 +263,7 @@ Login is built in-house with no auth library: bcrypt for passwords and a signed 
 - The JWT holds only `userId` and an expiry of 7 days. Role and wedding are looked up fresh on each request, so a removed member loses access immediately.
 - It's stored in a cookie set as `httpOnly`, `secure`, `sameSite=lax` and `path=/`. Browser scripts can't read it.
 - Logout clears the cookie. There are no refresh tokens in v1. After 7 days, the member logs in again.
+- Resetting or changing the password ends every other session: `users.passwordChangedAt` is set, and a token issued before it is refused with 401. The person who changed the password gets a new cookie and stays logged in.
 
 ### Access checks
 

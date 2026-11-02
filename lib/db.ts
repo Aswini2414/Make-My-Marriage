@@ -16,6 +16,11 @@ const cache: Cache = (globalThis.mongooseCache ??= { conn: null, promise: null }
 // Filters on fields that aren't in the schema are ignored rather than matching everything.
 mongoose.set("strictQuery", true);
 
+/** Whether a MongoDB write failed on a unique index (error code 11000). */
+export function isDuplicateKey(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { code?: number }).code === 11000;
+}
+
 export async function connectDb(): Promise<typeof mongoose> {
   if (cache.conn) return cache.conn;
   cache.promise ??= mongoose.connect(coreEnv().MONGODB_URI, {

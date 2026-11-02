@@ -160,7 +160,7 @@ If the account exists, a reset link valid for 1 hour is emailed. The response is
 { "user": { … }, "wedding": { … } }
 ```
 
-400 `TOKEN_INVALID` if the token is unknown, expired or already used.
+400 `TOKEN_INVALID` if the token is unknown, expired or already used. Every session issued before the reset stops working, and the response logs the caller in with a new one.
 
 ### POST /api/auth/change-password
 
@@ -169,7 +169,7 @@ If the account exists, a reset link valid for 1 hour is emailed. The response is
 { "currentPassword": "…", "newPassword": "…" }
 ```
 
-Returns `204`. 400 `INVALID_CREDENTIALS` if the current password is wrong.
+Returns `204` and sets a new session cookie. Every other session stops working. 401 `INVALID_CREDENTIALS` if the current password is wrong; after 5 wrong tries in 15 minutes, 429 `RATE_LIMITED`.
 
 ## Wedding and members
 
@@ -222,6 +222,7 @@ Any of these fields can be sent:
 - Returns `{ "wedding": { … } }`.
 - 409 `SLUG_TAKEN` if the address is used by another wedding. 400 `SLUG_RESERVED` for reserved words such as `api` or `dashboard`.
 - `coverPhotoKey` must be a key issued for this wedding by `POST /api/files/upload-url`.
+- 400 `VALIDATION_FAILED` if `weddingDate` is more than 2 years back or 10 years ahead, if a name has control characters, or if `rsvpCutoffDate` is after `weddingDate` (checked against the saved value when only one is sent).
 
 ### GET /api/wedding/slug-available
 
@@ -234,7 +235,7 @@ Returns `{ "available": true }` or `{ "available": false, "suggestion": "priya-w
 { "confirmSlug": "priya-weds-ravi" }
 ```
 
-The Admin must type the website address to confirm. Deletes everything, as set out in the Database Design under Data lifecycle. Returns `204`.
+The Admin must type the website address to confirm (400 `VALIDATION_FAILED` with `fields.confirmSlug` if it doesn't match; 403 for a Manager). Deletes everything, as set out in the Database Design under Data lifecycle. Returns `204`.
 
 ### GET /api/members
 
@@ -270,11 +271,11 @@ The Admin must type the website address to confirm. Deletes everything, as set o
 ### GET /api/members/accept?token=…
 
 ```json
-{ "weddingName": "Priya & Ravi", "invitedName": "Anil", "email": "anil@example.com",
-  "role": "manager", "hasAccount": false }
+{ "weddingName": "Priya & Ravi", "weddingDate": "2027-02-14", "invitedBy": "Leela",
+  "invitedName": "Anil", "email": "anil@example.com", "role": "manager", "hasAccount": false }
 ```
 
-The accept page uses `hasAccount` to show either **Set a password** or **Log in to accept**. 400 `TOKEN_INVALID` for an unknown, expired or used link.
+The accept page uses `hasAccount` to show either **Set up your account** or **Log in and join**, and the rest to describe the invitation. (The page itself, when rendered on the server, also describes an _expired_ link, so it can say whose wedding it was for. This endpoint still answers 400 for those.) 400 `TOKEN_INVALID` for an unknown, expired or used link.
 
 ### POST /api/members/accept
 

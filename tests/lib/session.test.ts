@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import { signSession, verifySession } from "@/lib/session";
 
 describe("session JWT", () => {
-  it("holds only the user ID", async () => {
+  it("holds only the user ID and when it was issued", async () => {
     const token = await signSession("6718f2a9c1e4b5a3d2f10a77");
-    expect(await verifySession(token)).toEqual({ userId: "6718f2a9c1e4b5a3d2f10a77" });
+    expect(await verifySession(token)).toEqual({
+      userId: "6718f2a9c1e4b5a3d2f10a77",
+      issuedAt: expect.any(Number),
+    });
   });
 
   it("rejects missing, tampered and wrongly signed tokens", async () => {

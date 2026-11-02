@@ -23,6 +23,8 @@
   --color-champagne-light: #eadbce; /* champagne text on plum */
   --color-champagne-tint: #faf4ec; /* faint champagne wash */
   --color-border: #e4dee8; /* all hairline borders */
+  --color-mauve: #c4b9cb; /* dashed upload border, muted placeholders, chevrons */
+  --color-plum-soft: #6e5a85; /* pale icons on lilac */
 
   /* Landing page phone mockups only: gallery tile tints and the camera notch. */
   --color-sand: #eae3d9;
@@ -62,6 +64,17 @@
   font-family: var(--font-sans);
 }
 
+/* Grows the tappable area of a small text link or button without changing the layout. */
+@utility tap-area {
+  position: relative;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -0.75rem -0.25rem;
+  }
+}
+
 /* Small labels: uppercase, letter-spaced, champagne. */
 @utility label {
   font-size: var(--text-xs);
@@ -87,6 +100,14 @@
   h3 {
     font-family: var(--font-display);
     font-weight: 400;
+  }
+
+  /* A long name or word with no spaces wraps instead of widening the page. */
+  h1,
+  h2,
+  h3,
+  p {
+    overflow-wrap: break-word;
   }
 
   :focus-visible {

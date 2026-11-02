@@ -5,6 +5,8 @@ const tones = {
   /** Softer border, used in the landing page header. */
   soft: "border-champagne/70 bg-surface text-plum",
   tint: "border-champagne bg-champagne-tint text-plum",
+  /** Champagne lettering, used on the wedding-ready screen. */
+  gold: "border-champagne bg-ivory text-champagne",
   /** For plum backgrounds. */
   dark: "border-champagne bg-surface/5 text-champagne",
 };

@@ -77,6 +77,7 @@ One document per person who can log in. Guests and photographers never have one.
 | `email` | String | Yes | Valid email, lowercase, unique |
 | `passwordHash` | String | Yes | bcrypt hash, cost 12. Never returned by any API |
 | `lastLoginAt` | Date | No | Set on each successful login |
+| `passwordChangedAt` | Date | No | Set when the password is reset or changed. A session issued before this moment is refused, so a reset ends every other session |
 
 ### memberships
 

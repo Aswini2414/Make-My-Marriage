@@ -32,6 +32,8 @@ const securityHeaders = [
 const noindex = [{ key: "X-Robots-Tag", value: "noindex, nofollow" }];
 
 const nextConfig: NextConfig = {
+  // Lets a production build go to its own folder while `next dev` is running.
+  distDir: process.env.NEXT_DIST_DIR ?? ".next",
   poweredByHeader: false,
   turbopack: {
     rules: {

@@ -3,7 +3,7 @@ import type { ComponentProps } from "react";
 
 // Pill buttons with single-line labels. Button is a <button>; ButtonLink navigates.
 
-type Variant = "primary" | "secondary";
+type Variant = "primary" | "secondary" | "outline";
 type Size = "md" | "lg";
 
 type StyleProps = { variant?: Variant; size?: Size; className?: string };
@@ -14,6 +14,7 @@ const base =
 const variants: Record<Variant, string> = {
   primary: "border-plum bg-plum text-ivory hover:bg-plum-hover",
   secondary: "border-border bg-surface text-ink hover:border-champagne",
+  outline: "border-plum bg-transparent text-plum hover:bg-plum/5",
 };
 
 const sizes: Record<Size, string> = {
