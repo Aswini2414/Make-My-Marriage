@@ -461,7 +461,7 @@ Each query below runs inside a module's service, always with the member's `weddi
 | Upcoming events | `events.find({ weddingId, date: { $gte: today } }).sort({ date: 1, time: 1 }).limit(5)` | `events` by date |
 | RSVP counts | The RSVP aggregation below | `rsvps` by event |
 | Total spent | The total-spent aggregation below | `expenses` by date |
-| Task summary | The task aggregation below | `tasks` by status |
+| Task summary and my tasks | The task aggregation (the same one `GET /api/tasks` uses for `summary` and `mine`) | `tasks` by status |
 | Pending invites | `memberInvites.countDocuments({ weddingId, acceptedAt: null, expiresAt: { $gt: now } })`, Admins only | `memberInvites` |
 
 ### RSVP counts and headcount per event

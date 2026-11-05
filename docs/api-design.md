@@ -924,25 +924,26 @@ Sets `status` to `done`, with `completedAt` and `completedBy`. Allowed for the a
 {
   "wedding": { "brideName": "Priya", "groomName": "Ravi", "weddingDate": "2027-02-14", "daysToGo": 116 },
   "upcomingEvents": [
-    { "id": "…", "name": "Haldi", "date": "2027-02-11", "time": "09:00", "venueName": "Home" }
+    { "id": "…", "name": "Haldi", "type": "Haldi", "date": "2027-02-11", "time": "09:00",
+      "venueName": "Home", "guestCount": 0 }
   ],
-  "rsvp": {
-    "overall": { "invited": 412, "attending": 260, "declined": 30, "notReplied": 122 },
-    "byEvent": [ { "eventId": "…", "name": "Reception", "invited": 380, "attending": 240,
-                   "declined": 25, "notReplied": 115, "headcount": 610 } ]
-  },
-  "money": { "totalSpentPaise": 125000000 },
+  "rsvp": null,
+  "money": null,
   "tasks": { "total": 48, "done": 30, "pending": 18, "overdue": 3,
-             "mine": [ { "id": "…", "title": "…", "dueDate": "…", "overdue": true } ] },
-  "pendingInvites": 2
+             "mine": { "total": 9, "pending": 4, "overdue": 1,
+                       "next": [ { "id": "…", "title": "…", "dueDate": "…", "overdue": true } ] } },
+  "setup": { "events": true, "tasks": true, "guests": false, "team": true },
+  "pendingInviteNames": ["Anil", "Sita"]
 }
 ```
 
 - `daysToGo` is counted in India Standard Time, and is 0 on the wedding day.
-- `upcomingEvents` holds the next 5 events from today.
-- `rsvp.overall` counts each guest once: **attending** if they're coming to at least one event, **declined** if they declined everything they answered, and **not replied** if they haven't answered any.
-- `tasks.mine` holds the logged-in member's next 5 open tasks.
-- `pendingInvites` is included for Admins only.
+- `upcomingEvents` holds the next 5 events dated today or later, in date and time order. Past events are left out. `guestCount` is the number of guests invited (0 until Phase 3).
+- `rsvp` and `money` are `null` until their modules exist. When built, `rsvp` is `{ overall: { invited, attending, declined, notReplied }, byEvent: [ … ] }` (Phase 3 and 4) and `money` is `{ totalSpentPaise }` (Phase 5). The page shows a quiet "not started" card while they are `null`.
+- `rsvp.overall` (when built) counts each guest once: **attending** if they're coming to at least one event, **declined** if they declined everything they answered, and **not replied** if they haven't answered any.
+- `tasks` comes from the same counts as `GET /api/tasks` (`summary` and `mine`), so the overdue rule is the one in `modules/tasks/overdue.ts`. `tasks.mine` is the logged-in member's own: how many tasks they have in all (`total`, so "nothing assigned to me" differs from "all mine are done"), their open and overdue counts, and their next 3 open tasks, earliest due date first. Only those 3 are loaded; the counts cover every task.
+- `setup` tells the dashboard's setup checklist what is done: an event exists, a task exists, a guest exists (always `false` until Phase 3), another member has joined. A pending invite does not tick `team`, because it can expire. The checklist goes away once everything that can be done yet is done, so the unbuilt guests item does not hold it open.
+- `pendingInviteNames` (who was invited and has not joined) is included for Admins only. Its length is the count.
 
 ## QR codes and photos
 

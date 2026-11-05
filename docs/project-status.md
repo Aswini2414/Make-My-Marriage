@@ -1,6 +1,6 @@
 # Make My Marriage — Project Status
 
-**Last updated:** Nov 5, 2026 · **Branch:** `dev` · **Last feature commit:** Phase 2C-2, the Tasks page (see `git log`). 2A and 2B are `3eb6ea0`, 2C-1 is `a0a7ed2` (not pushed yet), Phase 1 is `715c68d`.
+**Last updated:** Nov 5, 2026 · **Branch:** `dev` · **Last feature commit:** Phase 2D, the dashboard numbers (see `git log`). 2C (tasks backend and Tasks page) is `d8c14dc`, 2A and 2B are `3eb6ea0`, Phase 1 is `715c68d`.
 
 This file tracks how far the build has got. It is a progress log, not a design document: the PRD, system design, database design and API design stay the source of truth for _what_ to build. Read it at the start of every session, and update it whenever a feature or phase step is finished (see [How to update](#how-to-update-this-file)).
 
@@ -11,7 +11,7 @@ This file tracks how far the build has got. It is a progress log, not a design d
 | 0. Scaffold | ✅ Done |
 | Landing page (added outside the PRD phases) | ✅ Done |
 | 1. Setup and accounts | ✅ Done (1A–1E) |
-| 2. Events, tasks and dashboard | 🟨 In progress: 2A events backend, 2B Events page, 2C-1 tasks backend and 2C-2 Tasks page done; 2D dashboard numbers next |
+| 2. Events, tasks and dashboard | ✅ Done (2A–2D) |
 | 3. Guests | ⬜ Not started |
 | 4. Invitations and RSVP | ⬜ Not started |
 | 5. Money: expenses and gifts | ⬜ Not started |
@@ -20,9 +20,19 @@ This file tracks how far the build has got. It is a progress log, not a design d
 | 8. Photo sharing | ⬜ Not started |
 | 9. Testing and launch | ⬜ Not started |
 
-**Next up:** 2D, the real dashboard numbers: the next events, RSVP counts (zero until guests exist), total spent (zero until Money), and the task summary and "My tasks" from `GET /api/tasks` (`summary` and `mine`), plus the setup checklist reacting to real data. Open decision from 1D: build cover-photo upload with the files module, or earlier.
+**Next up:** Phase 3, Guests: the guest list, CSV and Excel import, assigning guests to events, and the guest counts that fill the dashboard's RSVP card and the events' invited numbers (each place has a `TODO(Phase 3)`). Open decision from 1D: build cover-photo upload with the files module (Phase 8), or earlier. Cover-photo upload is still waiting for that module.
 
 ## Done
+
+### Phase 2, step 2D: the dashboard shows real numbers
+
+- `GET /api/dashboard` (any active member), `modules/dashboard/service.ts`. It returns the countdown inputs, the next 5 events from today on (new `listUpcomingEvents` in the events service: name, type, date, time, venue, invited count), the task summary and "my tasks" from the existing `listTasks` (so the overdue rule is still only `taskOverdue`), the setup flags, and for Admins the names of pending invites (only 3 of the member's open tasks are loaded; counts still cover all). `rsvp` and `money` are `null` with TODOs (Phase 3 and 4 for RSVP, Phase 5 for money): nothing is invented.
+- `/dashboard` follows the Stitch screen "Desktop Dashboard (All States)": a stat row (Countdown, RSVP, Total spent, Tasks "N of M done" with a plum bar and "N pending / N overdue"), then "Upcoming events" (up to 5 rows, type chip, "View all events") beside "My tasks" (the member's next 3 open tasks, "View all tasks" to `/tasks?view=mine`), an Admin-only strip "2 invites waiting to be accepted: Sita and Ravi", and the setup checklist. RSVP and Total spent stay as quiet "not started" cards with a link ("Add your guests to see replies here", "Record your first expense to see the total"). Empty events and empty tasks have their own empty states with "Add event" and "Add task". No payments-due card.
+- The setup checklist is now four items (events, first task, guests, invite family) ticked from real data, each still linking to its page. It disappears once every item that can be done yet is done (guests are not built, so they do not hold it open until Phase 3); a pending invite does not tick "invite family", only a member who has joined does.
+- Admins and Managers see the same page, except the invites strip (Admin only, as in the PRD and the design). Phones: one column, all links and buttons at least 44px tall.
+- Checked in Chrome at 1280 and 390 px beside the Stitch crops, for a brand-new wedding, a wedding with events and tasks (with a past event, which is left out), an Admin, a Manager with their own tasks, and overdue tasks. Not covered: a production build.
+- Cover-photo upload was not touched: it still waits for the files module (Phase 8).
+- Tests: `tests/modules/dashboard.test.ts` (14, service and route against the real database) and `dashboard-ui.test.ts` (6).
 
 ### Phase 2, step 2C-2: Tasks page
 
@@ -162,6 +172,7 @@ Approved changes or choices not obvious from the design docs. Newest first.
 
 | Date | Decision |
 | --- | --- |
+| Nov 5, 2026 | Dashboard: `tasks.mine` in `GET /api/dashboard` is `{ pending, overdue, next }` with the next 3 open tasks (api-design.md said an array of 5); upcoming events also carry `type` and `guestCount`; `pendingInviteNames` and `setup` are new. A brand-new wedding shows the empty Upcoming events and My tasks cards above the checklist (Stitch's new-wedding frame hid them). Done checklist items show a tick and a struck-through title instead of disappearing one by one. The tasks progress track uses the `mist` token (#E5DEE8), the design's value. |
 | Nov 5, 2026 | Tasks page: filtering happens in the browser on the full list (the API's `listTasks` is called once, unfiltered), and the filters live in the address bar (`?view=mine&status=todo&event=…&q=…`). Tab, event and status changes add a history entry; typing in search replaces it. The page's counts come from the same list, never from the filtered rows. |
 | Nov 5, 2026 | Tasks page follows its Stitch screen where it differs from the Events page: the title is the larger size (`text-4xl sm:text-5xl`), event chips are not upper-case, and the My tasks tab shows the "Showing tasks assigned to you · N pending · N completed" strip. Not built: the design's "Active filter: Event … ✕" strip (the Event dropdown already shows and clears it), a "Nudge" button, and a date-grouped list (the design has none). Avatars use one lilac tint instead of the design's per-person colours (palette rule). |
 | Nov 5, 2026 | Task rows' check circle is `aria-disabled` rather than `disabled` for people who may not change the task, so keyboard and screen-reader users can still reach the reason. The edit drawer shows a removed assignee as "Name (removed)" and only sends changed fields. |

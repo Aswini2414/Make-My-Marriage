@@ -128,11 +128,15 @@ async function countTasks(
   };
 }
 
-/** The wedding's tasks (filtered), plus counts that ignore the filters. */
+/**
+ * The wedding's tasks (filtered), plus counts that ignore the filters. `limit` caps the list
+ * only: the counts still cover every task.
+ */
 export async function listTasks(
   weddingId: string,
   actor: Actor,
   query: ListTasksQuery,
+  limit?: number,
 ): Promise<TaskList> {
   await connectDb();
   const wid = toObjectId(weddingId);
@@ -154,6 +158,7 @@ export async function listTasks(
     ...(conditions.length ? { $and: conditions } : {}),
   })
     .sort({ status: -1, dueDate: 1, _id: 1 })
+    .limit(limit ?? 0)
     .lean();
 
   const [items, counts] = await Promise.all([

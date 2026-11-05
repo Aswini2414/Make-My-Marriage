@@ -66,6 +66,17 @@ export function formatShortDate(date: string): string {
   return shortDate.format(atNoonUtc(date));
 }
 
+const dayMonth = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  timeZone: "UTC",
+});
+
+/** "14 Feb". */
+export function formatDayMonth(date: string): string {
+  return dayMonth.format(atNoonUtc(date));
+}
+
 /** Good morning, afternoon or evening, by the hour in India Standard Time. */
 export function greetingIST(now: Date = new Date()): string {
   const hour = Number(

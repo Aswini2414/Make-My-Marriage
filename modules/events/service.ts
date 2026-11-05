@@ -66,6 +66,25 @@ export async function listEvents(weddingId: string): Promise<EventView[]> {
   return events.map((e) => toEventView(e, counts.get(String(e._id)) ?? 0));
 }
 
+/** The next events from `today` on (today included), in date and time order. */
+export async function listUpcomingEvents(
+  weddingId: string,
+  today: string,
+  limit: number,
+): Promise<EventView[]> {
+  await connectDb();
+  const wid = toObjectId(weddingId);
+  const events = await Event.find({ weddingId: wid, date: { $gte: today } })
+    .sort({ date: 1, time: 1, _id: 1 })
+    .limit(limit)
+    .lean();
+  const counts = await guestCounts(
+    wid,
+    events.map((e) => e._id),
+  );
+  return events.map((e) => toEventView(e, counts.get(String(e._id)) ?? 0));
+}
+
 export async function createEvent(weddingId: string, input: CreateEventInput): Promise<EventView> {
   await connectDb();
   const wid = toObjectId(weddingId);
