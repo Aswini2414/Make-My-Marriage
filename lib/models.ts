@@ -8,4 +8,5 @@ import "@/modules/auth/model";
 import "@/modules/events/model";
 import "@/modules/members/model";
 import "@/modules/qr/model";
+import "@/modules/tasks/model";
 import "@/modules/weddings/model";

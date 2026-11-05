@@ -8,7 +8,9 @@ import { Select } from "@/components/form/Select";
 import { TextArea } from "@/components/form/TextArea";
 import { TextField } from "@/components/form/TextField";
 import { DeleteIcon, GroupIcon } from "@/components/icons";
+import { DiscardPrompt } from "@/components/ui/DiscardPrompt";
 import { Drawer } from "@/components/ui/Drawer";
+import { useDiscardGuard } from "@/components/ui/useDiscardGuard";
 import { fieldErrors, patchJson, postJson } from "@/lib/api-client";
 import { ADD_NEW_TYPE, type EventItem, eventTypeOptions } from "@/modules/events/format";
 import { createEventSchema, updateEventSchema } from "@/modules/events/schema";
@@ -81,18 +83,10 @@ export function EventDrawer({
   const [banner, setBanner] = useState<string>();
   const [addingType, setAddingType] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   const dirty = (Object.keys(values) as (keyof Values)[]).some((k) => values[k] !== initial[k]);
 
-  // Closing never throws away typing by accident, and never happens while a save is running
-  // (the answer would arrive after the drawer is gone).
-  function requestClose() {
-    if (busy) return;
-    if (confirmDiscard) return setConfirmDiscard(false);
-    if (dirty) return setConfirmDiscard(true);
-    onClose();
-  }
+  const guard = useDiscardGuard({ dirty, busy, onClose });
 
   const set = (key: keyof Values) => (e: { target: { value: string } }) => {
     setValues((v) => ({ ...v, [key]: e.target.value }));
@@ -127,31 +121,10 @@ export function EventDrawer({
       subtitle={
         editing ? `Changing the details for ${event.name}` : "Fill in the details for your plan"
       }
-      onClose={requestClose}
+      onClose={guard.requestClose}
       footer={
-        confirmDiscard ? (
-          <div role="alert" className="flex items-center justify-between gap-3">
-            <p className="text-sm text-ink-body">Discard your changes?</p>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="md"
-                className="h-11"
-                autoFocus
-                onClick={() => setConfirmDiscard(false)}
-              >
-                Keep editing
-              </Button>
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex h-11 items-center px-3 text-sm font-medium text-error transition-colors hover:text-error/80"
-              >
-                Discard
-              </button>
-            </div>
-          </div>
+        guard.confirming ? (
+          <DiscardPrompt onKeep={guard.keepEditing} onDiscard={guard.discard} />
         ) : (
           <div className="flex items-center justify-between gap-3">
             {editing && onDelete ? (
@@ -170,7 +143,7 @@ export function EventDrawer({
             <div className="flex items-center gap-2 sm:gap-3">
               <button
                 type="button"
-                onClick={requestClose}
+                onClick={guard.requestClose}
                 disabled={busy}
                 className="flex h-11 items-center px-3 text-sm font-medium text-ink-body transition-colors hover:text-plum disabled:opacity-50"
               >

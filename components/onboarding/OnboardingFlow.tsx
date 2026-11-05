@@ -10,7 +10,7 @@ import { fieldErrors, postJson } from "@/lib/api-client";
 import { daysBetween, daysToGoText, formatDate, formatDateWithDay } from "@/lib/dates";
 import { brideName, createWeddingSchema, groomName, weddingDate } from "@/modules/weddings/schema";
 import { baseSlug } from "@/modules/weddings/slug";
-import { DatePicker } from "./DatePicker";
+import { DatePicker } from "@/components/form/DatePicker";
 import { ReadyScreen } from "./ReadyScreen";
 import { Stepper } from "./Stepper";
 import { WebsitePreview } from "./WebsitePreview";

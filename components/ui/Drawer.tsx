@@ -8,6 +8,8 @@ type Props = {
   title: ReactNode;
   subtitle?: string;
   onClose: () => void;
+  /** 520px by default; "narrow" is 480px. Both are full width on phones. */
+  width?: "default" | "narrow";
   /** Pinned under the scrolling body, such as the Cancel and Save buttons. */
   footer?: ReactNode;
   children: ReactNode;
@@ -17,7 +19,7 @@ type Props = {
  * A panel that slides in from the right (520px, full width on phones). Mount it only while
  * it is open: it takes focus on mount and gives it back on unmount.
  */
-export function Drawer({ title, subtitle, onClose, footer, children }: Props) {
+export function Drawer({ title, subtitle, onClose, width = "default", footer, children }: Props) {
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
   useFocusTrap(panel, onClose);
@@ -30,7 +32,9 @@ export function Drawer({ title, subtitle, onClose, footer, children }: Props) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative ml-auto flex h-full w-full max-w-[520px] flex-col border-l border-border bg-surface shadow-md"
+        className={`relative ml-auto flex h-full w-full flex-col border-l border-border bg-surface shadow-md ${
+          width === "narrow" ? "max-w-[480px]" : "max-w-[520px]"
+        }`}
       >
         <div className="flex items-center justify-between gap-4 border-b border-border px-5 py-5 sm:px-6">
           <div className="min-w-0">

@@ -1,6 +1,7 @@
 import "server-only";
 import type { ClientSession, Types } from "mongoose";
 import { QrCode } from "@/modules/qr/model";
+import { Task } from "@/modules/tasks/model";
 import type { ImpactKey } from "./format";
 
 // Everything in the app that points at an event through an eventId.
@@ -33,8 +34,13 @@ export const eventDependents: Record<ImpactKey, EventDependent> = {
   // Phase 5: clear eventId on expenses and on gifts.
   expenses: notBuiltYet,
   gifts: notBuiltYet,
-  // Phase 2C: clear eventId on tasks.
-  tasks: notBuiltYet,
+  // Tasks are kept; only their link to the event is cleared.
+  tasks: {
+    count: ({ weddingId, eventId }) => Task.countDocuments({ weddingId, eventId }),
+    cleanup: async ({ weddingId, eventId }, session) => {
+      await Task.updateMany({ weddingId, eventId }, { $unset: { eventId: 1 } }, { session });
+    },
+  },
   // Phase 6: pull the event out of vendors.eventIds.
   vendors: notBuiltYet,
   // The event's own QR code goes with it.

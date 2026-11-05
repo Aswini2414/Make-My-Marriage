@@ -162,6 +162,18 @@ describe("validation", () => {
     ]);
   });
 
+  it("says what to do when a required field is missing, not a Zod message", async () => {
+    const { userId } = await admin();
+    const err = await errorOf(await create(userId, {}));
+    expect(err.fields).toEqual({
+      name: "Enter the event name.",
+      type: "Choose an event type.",
+      date: "Choose the event date.",
+      time: "Enter a time like 18:30.",
+      venueName: "Enter the venue name.",
+    });
+  });
+
   it("rejects a bad time", async () => {
     await bad({ ...sangeet, time: "25:00" }, "time");
     await bad({ ...sangeet, time: "6:30" }, "time");

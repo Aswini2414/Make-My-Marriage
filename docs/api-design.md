@@ -838,8 +838,9 @@ All endpoints here need **Member** access.
 
 | Method | Path | Does |
 | --- | --- | --- |
-| GET | `/api/tasks` | Task list with filters |
+| GET | `/api/tasks` | Task list with filters, plus counts |
 | POST | `/api/tasks` | Create a task |
+| GET | `/api/tasks/:id` | One task |
 | PATCH | `/api/tasks/:id` | Update a task |
 | POST | `/api/tasks/:id/done` | Mark a task done |
 | POST | `/api/tasks/:id/reopen` | Set a done task back to to do |
@@ -852,11 +853,13 @@ All endpoints here need **Member** access.
 {
   "id": "…",
   "title": "Confirm caterer headcount",
-  "assignee": { "id": "…", "name": "Anil", "removed": false },
+  "assignee": { "id": "…", "name": "Anil", "initial": "A", "removed": false },
   "dueDate": "2027-02-05",
   "eventId": "…",
+  "eventName": "Reception",
   "status": "todo",
   "overdue": false,
+  "daysOverdue": 0,
   "note": "Use RSVP numbers from the Reception",
   "completedAt": null,
   "completedBy": null,
@@ -864,8 +867,9 @@ All endpoints here need **Member** access.
 }
 ```
 
-- `overdue` is worked out on read: status `todo` and `dueDate` before today in India Standard Time.
-- `assignee.removed` is true when the assignee has left the workspace, so the UI can flag the task for reassigning.
+- `overdue` is worked out on read: status `todo` and `dueDate` before today in India Standard Time. A task due today is not overdue. `daysOverdue` is the whole days since the due date (0 when not overdue). One helper, `taskOverdue` in `modules/tasks/overdue.ts`, decides this for the flag, the list filter and the page.
+- `assignee.removed` is true when the assignee has no active membership in this wedding (removed or left), so the UI can flag the task for reassigning. Their tasks are never deleted, and the name stays. Any member can reassign the task to an active member.
+- `initial` is the first letter of the assignee's name. `eventName` is the linked event's name, and `eventId` and `eventName` are left out when no event is linked. `completedAt` and `completedBy` are left out until the task is done.
 
 ### GET /api/tasks
 
@@ -875,8 +879,21 @@ All endpoints here need **Member** access.
 | `status` | `todo` or `done` |
 | `eventId` | One event |
 | `assigneeId` | One member |
+| `q` | Words in the title, any case |
 
-Returns `{ "items": [ … ] }`, sorted by `dueDate`, earliest first, with done tasks after open ones.
+Returns the filtered tasks plus counts that ignore the filters:
+
+```json
+{
+  "items": [ … ],
+  "summary": { "total": 48, "todo": 18, "done": 30, "overdue": 3 },
+  "mine": { "total": 9, "todo": 4, "done": 5, "overdue": 1 }
+}
+```
+
+- Sorted with open tasks first by `dueDate`, earliest first (so overdue tasks come first), then done tasks.
+- `summary` counts the whole wedding. `mine` counts the logged-in member's own tasks. Neither depends on the filters.
+- Not paginated: a wedding's tasks are a small list.
 
 ### POST /api/tasks
 
@@ -885,13 +902,21 @@ Returns `{ "items": [ … ] }`, sorted by `dueDate`, earliest first, with done t
   "eventId"?: "…", "note"?: "…" }
 ```
 
-Returns `201` with `{ "task": { … } }`. 400 `ASSIGNEE_NOT_MEMBER` if the assignee isn't an active member of this wedding.
+Returns `201` with `{ "task": { … } }`. 400 `ASSIGNEE_NOT_MEMBER` if the assignee isn't an active member of this wedding. 400 `VALIDATION_FAILED` with `fields.eventId` if the linked event isn't one of this wedding's events (an unknown id and another wedding's id answer the same way).
+
+`dueDate` must be a real day from five years back to ten years ahead of today (India Standard Time), the same window as the date picker on the Tasks page. A missing or wrong-type required field gets a plain message in `fields`, such as "Please give the task a title.".
+
+`PATCH /api/tasks/:id` takes the same fields, all optional, and `null` clears `eventId` or `note`. It follows the same two checks, and it can't change `status`: only the done and reopen routes do. Any Admin or Manager can create, edit and delete tasks.
+
+### GET /api/tasks/:id
+
+Returns `{ "task": { … } }`. 404 if it doesn't exist or belongs to another wedding.
 
 ### POST /api/tasks/:id/done
 
 Sets `status` to `done`, with `completedAt` and `completedBy`. Allowed for the assignee and for any Admin. 403 `NOT_ASSIGNEE` for any other Manager. Returns `{ "task": { … } }`.
 
-`POST /api/tasks/:id/reopen` follows the same rule, and clears `completedAt` and `completedBy`.
+`POST /api/tasks/:id/reopen` follows the same rule, and clears `completedAt` and `completedBy`. Both are safe to repeat: marking a done task done again, or reopening an open one, changes nothing and keeps the first `completedAt` and `completedBy`.
 
 ### GET /api/dashboard
 

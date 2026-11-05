@@ -79,6 +79,8 @@ const DEFAULT_MESSAGES: Partial<Record<ErrorCode, string>> = {
   UNKNOWN_EVENT_TYPE: "Choose one of the listed event types.",
   TYPE_EXISTS: "That event type already exists.",
   TOO_MANY_TYPES: "You can add up to 30 custom event types.",
+  ASSIGNEE_NOT_MEMBER: "Choose someone who is part of this wedding.",
+  NOT_ASSIGNEE: "Only the assignee or an Admin can do that.",
 };
 
 export type FieldErrors = Record<string, string>;

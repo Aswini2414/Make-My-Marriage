@@ -22,7 +22,7 @@ export const CUSTOM_TYPE_MAX = 40;
 
 const line = (label: string, max: number) =>
   z
-    .string()
+    .string({ error: `Enter ${label}.` })
     .trim()
     .min(1, `Enter ${label}.`)
     .max(max, `Use at most ${max} characters.`)
@@ -30,13 +30,13 @@ const line = (label: string, max: number) =>
 
 const optionalLine = (max: number) =>
   z
-    .string()
+    .string({ error: "Enter text." })
     .trim()
     .max(max, `Use at most ${max} characters.`)
     .refine(hasNoControlChars, NO_CONTROL_CHARS);
 
 // Notes may hold line breaks, so they only reject the other control characters.
-const NOTES_CONTROL = new RegExp(
+export const NOTES_CONTROL = new RegExp(
   "[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029]",
 );
 
@@ -44,7 +44,7 @@ const HTTPS_PREFIX = /^https:\/\//i;
 
 const httpsUrl = (message: string) =>
   z
-    .string()
+    .string({ error: message })
     .trim()
     .max(2000, "Use at most 2000 characters.")
     .refine((v) => {
@@ -68,11 +68,17 @@ const youtubeUrl = httpsUrl("Enter a YouTube link that starts with https://.").r
   }
 }, "Enter a youtube.com or youtu.be link.");
 
-const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Enter a time like 18:30.");
+const time = z
+  .string({ error: "Enter a time like 18:30." })
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Enter a time like 18:30.");
 
 const eventFields = {
   name: line("the event name", 80),
-  type: z.string().trim().min(1, "Choose an event type.").max(CUSTOM_TYPE_MAX),
+  type: z
+    .string({ error: "Choose an event type." })
+    .trim()
+    .min(1, "Choose an event type.")
+    .max(CUSTOM_TYPE_MAX),
   date: calendarDate("Choose the event date."),
   time,
   venueName: line("the venue name", 120),
@@ -80,7 +86,7 @@ const eventFields = {
   mapLink: httpsUrl("Enter a map link that starts with https://."),
   dressCode: optionalLine(120),
   notes: z
-    .string()
+    .string({ error: "Enter text." })
     .trim()
     .max(1000, "Use at most 1000 characters.")
     .refine((v) => !NOTES_CONTROL.test(v), NO_CONTROL_CHARS),

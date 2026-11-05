@@ -1,6 +1,6 @@
 # Make My Marriage — Project Status
 
-**Last updated:** Nov 5, 2026 · **Branch:** `dev` · **Last feature commit:** Phase 2, steps 2A and 2B (one commit; see `git log`). Phase 1 is `715c68d`.
+**Last updated:** Nov 5, 2026 · **Branch:** `dev` · **Last feature commit:** Phase 2C-2, the Tasks page (see `git log`). 2A and 2B are `3eb6ea0`, 2C-1 is `a0a7ed2` (not pushed yet), Phase 1 is `715c68d`.
 
 This file tracks how far the build has got. It is a progress log, not a design document: the PRD, system design, database design and API design stay the source of truth for _what_ to build. Read it at the start of every session, and update it whenever a feature or phase step is finished (see [How to update](#how-to-update-this-file)).
 
@@ -11,7 +11,7 @@ This file tracks how far the build has got. It is a progress log, not a design d
 | 0. Scaffold | ✅ Done |
 | Landing page (added outside the PRD phases) | ✅ Done |
 | 1. Setup and accounts | ✅ Done (1A–1E) |
-| 2. Events, tasks and dashboard | 🟨 In progress: 2A events backend and 2B Events page done |
+| 2. Events, tasks and dashboard | 🟨 In progress: 2A events backend, 2B Events page, 2C-1 tasks backend and 2C-2 Tasks page done; 2D dashboard numbers next |
 | 3. Guests | ⬜ Not started |
 | 4. Invitations and RSVP | ⬜ Not started |
 | 5. Money: expenses and gifts | ⬜ Not started |
@@ -20,9 +20,28 @@ This file tracks how far the build has got. It is a progress log, not a design d
 | 8. Photo sharing | ⬜ Not started |
 | 9. Testing and launch | ⬜ Not started |
 
-**Next up:** 2C, Tasks (backend, then the `/tasks` page, reusing `Drawer`, `Modal`, `Select` and `TextArea` from 2B), then the real dashboard numbers (countdown is already live). When tasks exist, replace the `tasks` stub in `modules/events/dependents.ts` so deleting an event unlinks its tasks. Open decision from 1D: build cover-photo upload with the files module, or earlier.
+**Next up:** 2D, the real dashboard numbers: the next events, RSVP counts (zero until guests exist), total spent (zero until Money), and the task summary and "My tasks" from `GET /api/tasks` (`summary` and `mine`), plus the setup checklist reacting to real data. Open decision from 1D: build cover-photo upload with the files module, or earlier.
 
 ## Done
+
+### Phase 2, step 2C-2: Tasks page
+
+- `/tasks`, built to the Stitch screen "Desktop Tasks (All States)": header "Your tasks", four stat cards (Total tasks, To do, Done, Overdue), the tabs All tasks | My tasks | Overdue (the overdue count shows on the tab when above 0), Event and Status dropdowns, a search box, and one white card listing the tasks. Rows have a round check, title, event chip ("All events" when none), initials circle and name ("(removed)" for someone who left), due date with an Overdue tag (on the Overdue tab "N days overdue" or "Due yesterday"), To do / Done pill and an edit pencil. Done rows are muted and struck through. Below 1024px a row is two lines.
+- The server page loads everything once (`listTasks`, `listMembers`, `listEvents`, `todayIST()`); `components/tasks/TasksView.tsx` filters in the browser and keeps tab, event, status and search in the address bar with the native History API, so refresh and Back work. `filterTasks`, `summarize` and `sortTasks` in `modules/tasks/format.ts` give the same answers as the API (a test compares them with the real service for every filter).
+- The check circle marks done or reopens at once and rolls back with a message if the server refuses (403 shows "Only the assignee or an Admin can mark this done."). For a Manager who is not the assignee it is disabled, with that text as tooltip and screen-reader label. Add and Edit use one 480px drawer (`TaskDrawer.tsx`): Title*, Assigned to*, Due date*, Linked event, Note; the edit drawer adds "Status is currently …" with Mark as done / Reopen, the lock line for people who cannot change the status, and "Delete task" with a confirm. Edit sends only the changed fields, so a task whose assignee has left can still be renamed. Empty state has the four template chips; a filtered list with no hits says "No tasks match these filters" with Clear filters.
+- Shared pieces made along the way: `components/form/DatePicker.tsx` (the onboarding calendar, moved here with optional `min` and `max`), `DateField.tsx` (a date field that opens it), `InlineSelect.tsx` (the compact "Event: All events" dropdown), `components/ui/useDiscardGuard.ts` and `DiscardPrompt.tsx` (the "Discard your changes?" logic that was inline in `EventDrawer`, now shared by both drawers), and a `width="narrow"` option on `Drawer`.
+- Checked in Chrome at 1280 and 390 px beside the Stitch crops, as an Admin, as a Manager who is the assignee, and as a Manager who is not (including a forced 403 to see the rollback). Also checked after the shared changes: the Events drawer's discard prompt and the onboarding calendar. Found nothing broken in the app. Not covered: a production build.
+- Tests: `tests/modules/tasks-ui.test.ts` (12 tests).
+
+### Phase 2, step 2C-1: tasks backend
+
+- API (all Member access): `GET` and `POST /api/tasks`, `GET`, `PATCH` and `DELETE /api/tasks/:id`, `POST /api/tasks/:id/done` and `/reopen`. Logic in `modules/tasks/service.ts`; browser-safe schemas in `modules/tasks/schema.ts` (the title error reads "Please give the task a title."); the shapes the page will use in `modules/tasks/types.ts` (`TaskItem`, `TaskList`, `TaskCounts`); model in `modules/tasks/model.ts` with the two indexes from the database design.
+- The list takes `view` (`all`, `mine`, `overdue`), `status`, `eventId`, `assigneeId` and `q` (title search, any case, regex characters are plain text). It answers `{ items, summary, mine }`: `summary` is `{ total, todo, done, overdue }` for the whole wedding and `mine` is the same for the logged-in member, both ignoring the filters. Order: open tasks by due date (so overdue first), then Done tasks. Each task carries the assignee's name and initial, `removed`, the event name, `overdue` and `daysOverdue`.
+- Rules, all tested: the assignee must be an active member of this wedding (400 `ASSIGNEE_NOT_MEMBER`); a linked event must be this wedding's (400 with `fields.eventId`, the same answer for an unknown id); the assignee or any Admin can mark done or reopen, any other Manager gets 403 `NOT_ASSIGNEE`; done and reopen are safe to repeat and keep the first finisher; `PATCH` can't change the status; any Admin or Manager can create, edit and delete.
+- One overdue rule: `taskOverdue` in `modules/tasks/overdue.ts` (To do and due before today in India Standard Time, via `todayIST()`). The list's overdue filter and the summary use the same `today`.
+- Deleting an event keeps its tasks and clears their event link (`modules/events/dependents.ts`; the delete-impact preview's `tasks` count is real, and the existing delete modal already words it "kept, but unlinked"). `deleteWedding` deletes the wedding's tasks in the same transaction.
+- `docs/api-design.md` is updated for `q`, `summary`, `mine`, `GET /api/tasks/:id`, and the extra task fields.
+- Tests: `tests/modules/tasks.test.ts` (36 tests, real database).
 
 ### Phase 2, step 2B: Events page
 
@@ -42,6 +61,14 @@ This file tracks how far the build has got. It is a progress log, not a design d
 - Adding a custom type: duplicates are decided in one place in JavaScript (`sameType`: ignores case and Unicode composition), and the write only succeeds if the list is still exactly what was checked, retrying otherwise. This fixes accented and non-Latin names being misreported as "too many types". The page now takes the saved list from the API answer, so the dropdown always matches what the server stores (and picks up types added by someone else).
 - `PATCH /api/events/:id` answers 404 for a missing event before it checks the type.
 - `useFocusTrap` skips hidden controls when wrapping Tab. The event and delete-impact types are shared by server and browser (`EventItem`, `Impact`, `IMPACT_KEYS` in `modules/events/format.ts`), so a later phase that adds a key can't silently drift. Tests: 4 new in `tests/modules/events.test.ts`.
+
+### Phase 2, manual-test fixes
+
+A manual end-to-end test of events and tasks (about 190 API checks, 24 in Chrome on desktop and phone) found three small issues, now fixed:
+
+- Tasks page filters (tab, event, status) are React state mirrored to the address bar, so the list changes at once on click instead of after the router catches up. Back and Forward still work (`popstate`), and so does a link to `/tasks` from elsewhere.
+- Missing or wrong-type required fields on events, tasks and calendar dates answer with the app’s plain wording ("Enter the event name.") instead of Zod’s "Invalid input: expected string…".
+- A task `dueDate` must be within five years back and ten ahead of today, in the API as well as in the date picker (`DUE_YEARS_BACK` and `DUE_YEARS_AHEAD` in `modules/tasks/schema.ts`). Editing another field of an older task doesn’t re-check its date. Event dates are still unbounded (see Decisions).
 
 ### Phase 2, step 2A review fixes
 
@@ -135,6 +162,14 @@ Approved changes or choices not obvious from the design docs. Newest first.
 
 | Date | Decision |
 | --- | --- |
+| Nov 5, 2026 | Tasks page: filtering happens in the browser on the full list (the API's `listTasks` is called once, unfiltered), and the filters live in the address bar (`?view=mine&status=todo&event=…&q=…`). Tab, event and status changes add a history entry; typing in search replaces it. The page's counts come from the same list, never from the filtered rows. |
+| Nov 5, 2026 | Tasks page follows its Stitch screen where it differs from the Events page: the title is the larger size (`text-4xl sm:text-5xl`), event chips are not upper-case, and the My tasks tab shows the "Showing tasks assigned to you · N pending · N completed" strip. Not built: the design's "Active filter: Event … ✕" strip (the Event dropdown already shows and clears it), a "Nudge" button, and a date-grouped list (the design has none). Avatars use one lilac tint instead of the design's per-person colours (palette rule). |
+| Nov 5, 2026 | Task rows' check circle is `aria-disabled` rather than `disabled` for people who may not change the task, so keyboard and screen-reader users can still reach the reason. The edit drawer shows a removed assignee as "Name (removed)" and only sends changed fields. |
+| Nov 5, 2026 | Overdue means status To do and due date before today in India Standard Time (`todayIST()`). A task due today is not overdue; it becomes overdue at midnight IST. One helper, `taskOverdue`, feeds the flag, the list filter and the summary, so there is no second rule. |
+| Nov 5, 2026 | When a member is removed or leaves, their tasks are not deleted. The list keeps their name with `removed: true`, they still count in the totals, and any Admin or Manager can reassign the task (only to an active member). If they rejoin, they show as active again. |
+| Nov 5, 2026 | Deleting an event keeps its tasks and clears their event link. The task fields stay `completedAt` and `completedBy` as in the database design (not `doneAt`). A linked event from another wedding is a 400 field error, the same as an unknown id, so nothing leaks. |
+| Nov 5, 2026 | Added to the task API beyond the first api-design text, and documented there: `GET /api/tasks/:id`, `q` (title search), and the `summary` and `mine` counts on the list. Task lists are not paginated. |
+| Nov 5, 2026 | Task `dueDate` is limited to five years back and ten ahead, in the API too, matching the date picker. Event dates keep no bounds, as decided for 2A. api-design.md updated. |
 | Nov 4, 2026 | Events page: dates and times use the browser's native date and time inputs, and the type dropdown is a native select (with a divider line and "+ Add new type" last), instead of Stitch's custom pickers. They are keyboard- and phone-friendly and already produce `YYYY-MM-DD` and `HH:mm`. |
 | Nov 4, 2026 | Events page copy follows the app's wording, not the design's: "Select event type…", "Or start with an event type", "It will stay in your list for future events.", "This type already exists." (the design said ritual, ceremony and catalog). Form inputs stay `h-12 rounded-input` (CLAUDE.md), the drawer's labels use Stitch's small grey capitals, and the italic accent words use `champagne-deep`. |
 | Nov 4, 2026 | Managers see exactly the same Events page as Admins: Stitch's "same access as Admins, except…" note and any role badge are not built. The type chip for "Wedding (Muhurtham)" reads "Wedding", as in the design. Dress code and address lines are left out when empty. The delete modal also lists tasks, vendors and photos when those exist (the design shows guests, RSVPs, expenses, gifts and the QR code). |

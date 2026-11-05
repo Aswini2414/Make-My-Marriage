@@ -19,11 +19,16 @@ type Props = {
   /** Today, as YYYY-MM-DD. Its month shows first when nothing is chosen. */
   today: string;
   onChange: (date: string) => void;
+  /** Earliest and latest day that can be picked. Defaults to the wedding date range. */
+  min?: string;
+  max?: string;
 };
 
 /** A month grid that picks one calendar day. Weeks start on Sunday, as in the design. */
-export function DatePicker({ value, today, onChange }: Props) {
-  const { min, max } = weddingDateBounds(today);
+export function DatePicker({ value, today, onChange, min: minProp, max: maxProp }: Props) {
+  const bounds = weddingDateBounds(today);
+  const min = minProp ?? bounds.min;
+  const max = maxProp ?? bounds.max;
   const start = value || today;
   const [year, setYear] = useState(Number(start.slice(0, 4)));
   const [month, setMonth] = useState(Number(start.slice(5, 7))); // 1 to 12

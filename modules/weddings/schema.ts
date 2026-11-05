@@ -19,7 +19,7 @@ const personName = (who: string) =>
 /** A real calendar date written YYYY-MM-DD. */
 export const calendarDate = (message: string) =>
   z
-    .string()
+    .string({ error: message })
     .regex(/^\d{4}-\d{2}-\d{2}$/, message)
     .refine((v) => {
       const d = new Date(`${v}T00:00:00Z`);
