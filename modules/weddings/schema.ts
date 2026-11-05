@@ -17,7 +17,7 @@ const personName = (who: string) =>
     .refine(hasNoControlChars, NO_CONTROL_CHARS);
 
 /** A real calendar date written YYYY-MM-DD. */
-const calendarDate = (message: string) =>
+export const calendarDate = (message: string) =>
   z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, message)

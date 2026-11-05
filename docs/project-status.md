@@ -1,6 +1,6 @@
 # Make My Marriage — Project Status
 
-**Last updated:** Nov 2, 2026 · **Branch:** `dev` · **Last feature commit:** `715c68d` (Phase 1)
+**Last updated:** Nov 5, 2026 · **Branch:** `dev` · **Last feature commit:** Phase 2, steps 2A and 2B (one commit; see `git log`). Phase 1 is `715c68d`.
 
 This file tracks how far the build has got. It is a progress log, not a design document: the PRD, system design, database design and API design stay the source of truth for _what_ to build. Read it at the start of every session, and update it whenever a feature or phase step is finished (see [How to update](#how-to-update-this-file)).
 
@@ -11,7 +11,7 @@ This file tracks how far the build has got. It is a progress log, not a design d
 | 0. Scaffold | ✅ Done |
 | Landing page (added outside the PRD phases) | ✅ Done |
 | 1. Setup and accounts | ✅ Done (1A–1E) |
-| 2. Events, tasks and dashboard | ⬜ Not started (next) |
+| 2. Events, tasks and dashboard | 🟨 In progress: 2A events backend and 2B Events page done |
 | 3. Guests | ⬜ Not started |
 | 4. Invitations and RSVP | ⬜ Not started |
 | 5. Money: expenses and gifts | ⬜ Not started |
@@ -20,9 +20,43 @@ This file tracks how far the build has got. It is a progress log, not a design d
 | 8. Photo sharing | ⬜ Not started |
 | 9. Testing and launch | ⬜ Not started |
 
-**Next up:** Phase 2: events (default types, custom types, create and edit), tasks, and the real dashboard numbers (countdown is already live). Open decision from 1D: build cover-photo upload with the files module, or earlier.
+**Next up:** 2C, Tasks (backend, then the `/tasks` page, reusing `Drawer`, `Modal`, `Select` and `TextArea` from 2B), then the real dashboard numbers (countdown is already live). When tasks exist, replace the `tasks` stub in `modules/events/dependents.ts` so deleting an event unlinks its tasks. Open decision from 1D: build cover-photo upload with the files module, or earlier.
 
 ## Done
+
+### Phase 2, step 2B: Events page
+
+- `/events` (built to match the Stitch screen "Desktop Events (All States)"): server page loads the list and the wedding's custom types (`listEvents`, `getEventTypes`), `components/events/EventsView.tsx` handles the rest. Events are grouped under a date heading ("Friday, 12 February 2027 · 1 event", or "Wedding Day" when the day has the Wedding event). Cards show the date tile, name, type chip, time, venue with a Map link, dress code, address, "Live link added", "N invited", Edit and a three-dot menu (Edit, Delete). Empty state has the default-type chips; a chip opens the Add drawer with that type chosen.
+- Add and edit are one drawer (`EventDrawer.tsx`) using the same Zod schemas as the API; server `fields` errors show under each field. **+ Add new type** reveals an inline field that calls `POST /api/events/types`, then selects the new type; a duplicate shows "This type already exists." Delete (from the card menu or the edit drawer) opens `DeleteEventModal.tsx`, which lists only what the delete-impact API says would change.
+- After a save or delete the page updates its own list from the API answer. It does not call `router.refresh()`.
+- Shared pieces for the next modules: `components/ui/Drawer.tsx`, `Modal.tsx` and `useFocusTrap.ts` (Tab stays inside, Escape closes, focus returns to the opener, page scroll locked), `components/form/Select.tsx` (native select), `TextArea.tsx`, and `caps` / `optional` options on `TextField`. `lib/api-client.ts` gained `getJson`. Pure helpers in `modules/events/format.ts` (`groupEventsByDate`, `eventTypeOptions`, `typeChipLabel`) and `formatTime12` / `dateTileParts` in `lib/dates.ts`.
+- Checked in Chrome at 1280 and 390 px against the Stitch screenshot: every state except the Manager view (same page, no role-specific UI). Found and fixed: a long unbroken dress code widened the page on phones. Keyboard checked: Escape, Tab trap, focus return, three-dot menu arrow keys.
+- Tests: `tests/modules/events-ui.test.ts` (17: grouping, time and date formats, the type dropdown, the shared form schemas). The test setup is node-only, so drawer and modal behaviour was checked in the browser, not in unit tests.
+- 2A and 2B went in as one commit, because the 2A service now shares its types with `modules/events/format.ts` from 2B.
+- Manual test pass (a real Chrome window against a throwaway database, email sending turned off): landing, route guards, signup, the three onboarding steps, dashboard, log in and out, wrong-password and rate-limit messages, forgot and reset password screens, settings, Members as Admin and as Manager, all Events states at 1280 and 390 px, a second couple's data staying separate (404 on every route), and deleting a wedding. No application bugs found. Not covered: real email delivery (invites, reset links). Check those once with the real Gmail.
+
+### Phase 2, step 2B review fixes
+
+- Deleting an event that is already gone (another tab or member) now drops it from the list instead of showing an error forever. A save or delete in progress can't be closed or started twice (Escape, backdrop, Cancel and Delete are held until the answer arrives), so a late answer can't close a different panel.
+- The Add and Edit drawer asks "Discard your changes?" (focus on **Keep editing**) before Escape, the backdrop, Cancel or the close button throws away typing. A clean drawer still closes at once.
+- Adding a custom type: duplicates are decided in one place in JavaScript (`sameType`: ignores case and Unicode composition), and the write only succeeds if the list is still exactly what was checked, retrying otherwise. This fixes accented and non-Latin names being misreported as "too many types". The page now takes the saved list from the API answer, so the dropdown always matches what the server stores (and picks up types added by someone else).
+- `PATCH /api/events/:id` answers 404 for a missing event before it checks the type.
+- `useFocusTrap` skips hidden controls when wrapping Tab. The event and delete-impact types are shared by server and browser (`EventItem`, `Impact`, `IMPACT_KEYS` in `modules/events/format.ts`), so a later phase that adds a key can't silently drift. Tests: 4 new in `tests/modules/events.test.ts`.
+
+### Phase 2, step 2A review fixes
+
+- Event `mapLink` and `youtubeLink`: `HTTPS://…` is accepted, and `https:host` (no `//`) is refused with a 400. Before, Zod and the model disagreed and these crashed as a 500. Two new tests in `tests/modules/events.test.ts` (35 now).
+- `reserve()` in `lib/rate-limit.ts` counts only hits up to its own (`_id <= hit._id`), so concurrent sends near the 450 email cap no longer all refuse together: the first ones in line get the free places.
+- Fixed the `RequestInit` type error in `tests/lib/api.test.ts`. Typecheck, lint and all 231 tests pass.
+
+### Phase 2, step 2A: events backend
+
+- API (all Member access): `GET` and `POST /api/events`, `GET`, `PATCH` and `DELETE /api/events/:id`, `GET /api/events/:id/delete-impact`, `GET` and `POST /api/events/types`. Logic in `modules/events/service.ts`; shared Zod schemas (browser-safe, for the 2B form) in `modules/events/schema.ts`; model in `modules/events/model.ts`.
+- Events list in date then time order. Time is `HH:mm`; map links must be `https`; live links must be `https` on `youtube.com`, `www.`, `m.` or `youtu.be`. `null` clears an optional field on PATCH. Other wedding's ids answer 404.
+- Custom event types are `weddings.customEventTypes` (as in database-design.md), not a collection. Adding is a checked write (see the 2B review fixes): duplicates (case-insensitive, also against the 8 defaults) answer 409 `TYPE_EXISTS`, the 31st answers `TOO_MANY_TYPES`, even with several requests at once.
+- `modules/events/dependents.ts` is where every module that points at an event plugs in a `count` (for delete-impact) and a `cleanup` (run in the delete transaction). Today only `qrCodes` is real; `guests`, `rsvps`, `expenses`, `gifts`, `tasks`, `vendors` and `photos` are zero stubs, each marked with the phase that fills it in. `guestCounts` and `rsvpCounts` in the same file are stubs for `guestCount` and the `rsvp` block of `GET /api/events/:id`.
+- `deleteWedding` also deletes the wedding's events; the comment above it states the rule for event-pointing modules.
+- Tests: `tests/modules/events.test.ts` (39 tests with the 2A and 2B review fixes).
 
 ### Phase 1, manual-test fixes
 
@@ -101,6 +135,11 @@ Approved changes or choices not obvious from the design docs. Newest first.
 
 | Date | Decision |
 | --- | --- |
+| Nov 4, 2026 | Events page: dates and times use the browser's native date and time inputs, and the type dropdown is a native select (with a divider line and "+ Add new type" last), instead of Stitch's custom pickers. They are keyboard- and phone-friendly and already produce `YYYY-MM-DD` and `HH:mm`. |
+| Nov 4, 2026 | Events page copy follows the app's wording, not the design's: "Select event type…", "Or start with an event type", "It will stay in your list for future events.", "This type already exists." (the design said ritual, ceremony and catalog). Form inputs stay `h-12 rounded-input` (CLAUDE.md), the drawer's labels use Stitch's small grey capitals, and the italic accent words use `champagne-deep`. |
+| Nov 4, 2026 | Managers see exactly the same Events page as Admins: Stitch's "same access as Admins, except…" note and any role badge are not built. The type chip for "Wedding (Muhurtham)" reads "Wedding", as in the design. Dress code and address lines are left out when empty. The delete modal also lists tasks, vendors and photos when those exist (the design shows guests, RSVPs, expenses, gifts and the QR code). |
+| Nov 4, 2026 | Custom event types are the embedded `weddings.customEventTypes` array from database-design.md, not a separate collection (the 2A brief mentioned a model for them). No new collection was added. |
+| Nov 4, 2026 | Event `mapLink` must be an `https` URL (any host, as the database design says); `youtubeLink` must be `https` on a YouTube host. An event `type` must match a default or the wedding's custom type exactly as spelled. Event dates only need to be real calendar dates (no wedding-date bounds). |
 | Nov 1, 2026 | Stitch has no Members page, so `/members` follows the dashboard's look (cards, hairline borders, pills). If a Members design is added later, restyle to it. |
 | Nov 1, 2026 | The accept-invite page uses the app's date style ("14 February 2027") and Instrument Serif, not the design's "February 14, 2027" and default serif, so it matches the rest of the app. It omits the "agree to Terms and Privacy" line until those pages exist (same as signup). |
 | Nov 1, 2026 | Accepting an invite adds `invitedBy` and `weddingDate` to the `GET /api/members/accept` answer, and an expired link is still described on the page (not by the API). api-design.md updated. |
@@ -126,6 +165,7 @@ Approved changes or choices not obvious from the design docs. Newest first.
 
 ## Known issues and notes
 
+- The test suite starts an in-memory MongoDB, which can exceed Vitest's default 10 s hook timeout on a slow machine. If `beforeAll` times out, run `npx vitest run --hookTimeout=120000 --testTimeout=60000`.
 - Reset emails can't be received locally until `GMAIL_USER` and `GMAIL_APP_PASSWORD` are set in `.env.local`. The reset link is deliberately never logged (CLAUDE.md: never log a token).
 - The reset link's token stays in the address bar while the page is open. Removing it would make a page refresh show "link expired", so it was left as is.
 - Turbopack can also keep serving old CSS after `globals.css` changes in a long-running `next dev`. Restart it if a style change doesn't show.

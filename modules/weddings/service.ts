@@ -4,6 +4,7 @@ import { connectDb, isDuplicateKey } from "@/lib/db";
 import { ApiError } from "@/lib/errors";
 import { toObjectId } from "@/lib/ids";
 import { encryptToken, generateToken, hashToken } from "@/lib/tokens";
+import { Event } from "@/modules/events/model";
 import { MemberInvite, Membership } from "@/modules/members/model";
 import { QrCode } from "@/modules/qr/model";
 import { Wedding, type WeddingAttrs } from "./model";
@@ -185,6 +186,11 @@ export async function checkSlug(weddingId: string, slug: string): Promise<SlugCh
  *
  * Every module that adds a wedding-scoped collection must add its delete here, and the R2
  * files under weddings/<id>/ must be deleted after this commits (files module, Phase 8).
+ *
+ * Deleting a single event is a different case: a module whose records point at an event
+ * (guests, rsvps, expenses, gifts, tasks, vendors, photos) must unlink or delete them in
+ * modules/events/dependents.ts, as well as being deleted here with the wedding.
+ * Custom event types need nothing: they are weddings.customEventTypes and go with the wedding.
  */
 export async function deleteWedding(weddingId: string, confirmSlug: string): Promise<void> {
   await connectDb();
@@ -200,6 +206,7 @@ export async function deleteWedding(weddingId: string, confirmSlug: string): Pro
         });
       }
       await QrCode.deleteMany({ weddingId: wid }, { session });
+      await Event.deleteMany({ weddingId: wid }, { session });
       await MemberInvite.deleteMany({ weddingId: wid }, { session });
       await Membership.updateMany(
         { weddingId: wid, status: "active" },

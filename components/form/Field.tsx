@@ -16,7 +16,7 @@ export function inputClass(invalid: boolean, strong = false) {
 
 type FrameProps = {
   id: string;
-  label: string;
+  label: ReactNode;
   error?: string;
   hint?: string;
   /** Sits opposite the label, such as "Forgot password?". */
@@ -25,6 +25,10 @@ type FrameProps = {
   iconError?: boolean;
   /** Larger label and hint, as on the accept-invite screens. */
   large?: boolean;
+  /** Small uppercase label, as in the Events drawer. */
+  caps?: boolean;
+  /** Adds a quiet "(optional)" after the label. */
+  optional?: boolean;
   children: ReactNode;
 };
 
@@ -36,6 +40,8 @@ export function FieldFrame({
   labelAside,
   iconError,
   large,
+  caps,
+  optional,
   children,
 }: FrameProps) {
   return (
@@ -43,9 +49,16 @@ export function FieldFrame({
       <div className={`${large ? "mb-1.5" : "mb-2"} flex items-center justify-between`}>
         <label
           htmlFor={id}
-          className={`block ${large ? "text-sm" : "text-xs"} font-medium ${iconError && error ? "text-error" : "text-ink"}`}
+          className={`block ${
+            caps
+              ? "text-[11px] font-semibold tracking-wider text-ink-secondary uppercase"
+              : `${large ? "text-sm" : "text-xs"} font-medium ${iconError && error ? "text-error" : "text-ink"}`
+          }`}
         >
           {label}
+          {optional && (
+            <span className="ml-1 font-normal tracking-normal normal-case">(optional)</span>
+          )}
         </label>
         {labelAside}
       </div>

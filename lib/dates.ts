@@ -92,3 +92,20 @@ export function addYears(date: string, years: number): string {
   const pad = (n: number, w: number) => String(n).padStart(w, "0");
   return `${pad(target, 4)}-${pad(m, 2)}-${pad(day, 2)}`;
 }
+
+/** "10:00 AM" from "10:00" (24-hour HH:mm). */
+export function formatTime12(time: string): string {
+  const [h, m] = time.split(":").map(Number) as [number, number];
+  const suffix = h < 12 ? "AM" : "PM";
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+
+const dayNumber = new Intl.DateTimeFormat("en-GB", { day: "numeric", timeZone: "UTC" });
+const monthShort = new Intl.DateTimeFormat("en-GB", { month: "short", timeZone: "UTC" });
+const weekdayShort = new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: "UTC" });
+
+/** The pieces of a small date tile: "12", "Feb", "Fri". */
+export function dateTileParts(date: string): { day: string; month: string; weekday: string } {
+  const d = atNoonUtc(date);
+  return { day: dayNumber.format(d), month: monthShort.format(d), weekday: weekdayShort.format(d) };
+}

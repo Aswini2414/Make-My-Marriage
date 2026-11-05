@@ -85,6 +85,9 @@ export async function reserve(
   const used = await RateLimit.countDocuments({
     key,
     createdAt: { $gte: new Date(Date.now() - windowMs) },
+    // Only hits up to this one, so each request has its own place in line. Counting all of
+    // them made every concurrent request near the limit see "over" and refuse together.
+    _id: { $lte: hit._id },
   });
   if (used > limit) {
     await release();

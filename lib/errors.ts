@@ -76,6 +76,9 @@ const DEFAULT_MESSAGES: Partial<Record<ErrorCode, string>> = {
   CREATOR_PROTECTED: "The person who created the wedding can't be removed.",
   SLUG_TAKEN: "That address is already used by another wedding.",
   SLUG_RESERVED: "That address is reserved. Try another.",
+  UNKNOWN_EVENT_TYPE: "Choose one of the listed event types.",
+  TYPE_EXISTS: "That event type already exists.",
+  TOO_MANY_TYPES: "You can add up to 30 custom event types.",
 };
 
 export type FieldErrors = Record<string, string>;

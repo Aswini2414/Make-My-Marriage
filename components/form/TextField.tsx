@@ -3,7 +3,7 @@ import { describe, FieldFrame, inputClass } from "./Field";
 
 type Props = Omit<ComponentProps<"input">, "id"> & {
   id: string;
-  label: string;
+  label: ReactNode;
   error?: string;
   /** Red border without a message, when a banner explains the problem. */
   invalid?: boolean;
@@ -13,6 +13,9 @@ type Props = Omit<ComponentProps<"input">, "id"> & {
   iconError?: boolean;
   /** Larger label and hint, as on the accept-invite screens. */
   large?: boolean;
+  /** Small uppercase label, as in the Events drawer. */
+  caps?: boolean;
+  optional?: boolean;
 };
 
 export function TextField({
@@ -24,6 +27,8 @@ export function TextField({
   labelAside,
   iconError,
   large,
+  caps,
+  optional,
   ...input
 }: Props) {
   return (
@@ -35,6 +40,8 @@ export function TextField({
       labelAside={labelAside}
       iconError={iconError}
       large={large}
+      caps={caps}
+      optional={optional}
     >
       <input
         id={id}

@@ -58,6 +58,7 @@ async function sendJson<T>(method: string, path: string, body?: unknown): Promis
   }
 }
 
+export const getJson = <T = unknown>(path: string) => sendJson<T>("GET", path);
 export const postJson = <T = unknown>(path: string, body: unknown = {}) =>
   sendJson<T>("POST", path, body);
 export const patchJson = <T = unknown>(path: string, body: unknown) =>

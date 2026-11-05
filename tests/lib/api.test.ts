@@ -66,7 +66,7 @@ describe("handler()", () => {
       headers: { "content-type": "application/json", origin: APP },
       body: stream,
       duplex: "half",
-    } as RequestInit);
+    } as ConstructorParameters<typeof NextRequest>[1]);
     const res = await route(req, undefined);
     expect(res.status).toBe(400);
     expect((await res.json()).error.message).toBe("The request is too large.");
