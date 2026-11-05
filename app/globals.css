@@ -114,4 +114,27 @@
     outline: 2px solid var(--color-plum);
     outline-offset: 2px;
   }
+
+  /* Tailwind's reset leaves buttons with the arrow cursor. Anything you can click shows a hand. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="menuitem"],
+  summary,
+  select:not(:disabled),
+  input:is(
+      [type="checkbox"],
+      [type="radio"],
+      [type="submit"],
+      [type="button"],
+      [type="date"],
+      [type="time"]
+    ):not(:disabled),
+  label[for] {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
 }
