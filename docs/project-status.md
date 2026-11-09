@@ -1,6 +1,6 @@
 # Make My Marriage — Project Status
 
-**Last updated:** Nov 5, 2026 · **Branch:** `dev` · **Last feature commit:** Phase 2D, the dashboard numbers (see `git log`). 2C (tasks backend and Tasks page) is `d8c14dc`, 2A and 2B are `3eb6ea0`, Phase 1 is `715c68d`.
+**Last updated:** Nov 9, 2026 · **Branch:** `dev` · **Last feature commit:** Phase 2D, the dashboard numbers (see `git log`), followed by the first-deploy preparation (see Done). 2C (tasks backend and Tasks page) is `d8c14dc`, 2A and 2B are `3eb6ea0`, Phase 1 is `715c68d`.
 
 This file tracks how far the build has got. It is a progress log, not a design document: the PRD, system design, database design and API design stay the source of truth for _what_ to build. Read it at the start of every session, and update it whenever a feature or phase step is finished (see [How to update](#how-to-update-this-file)).
 
@@ -23,6 +23,15 @@ This file tracks how far the build has got. It is a progress log, not a design d
 **Next up:** Phase 3, Guests: the guest list, CSV and Excel import, assigning guests to events, and the guest counts that fill the dashboard's RSVP card and the events' invited numbers (each place has a `TODO(Phase 3)`). Open decision from 1D: build cover-photo upload with the files module (Phase 8), or earlier. Cover-photo upload is still waiting for that module.
 
 ## Done
+
+### Preparing the first production deploy to Vercel (not deployed yet)
+
+- Build, lint, typecheck and the whole suite pass. [docs/deployment.md](deployment.md) is the checklist: accounts, variables (names only), first deploy, smoke test, rollback. `vercel.json` sets the function region to `bom1`.
+- `.env.example` now gives the exact format and generator for every variable, and says which are needed when. **`APP_URL` is needed at build time** (the root layout's `metadataBase` reads it, and `/` is prerendered): a build with a bad `APP_URL` fails. A build needs no database, JWT, encryption, Gmail or R2 variables. R2 is not needed until Phase 8.
+- Env checks are lazy, per area (`coreEnv`, `mailEnv`, `r2Env`): nothing is validated at server start. New `mongoUri()` in `lib/env.ts` reads only `MONGODB_URI`, so `npm run db:indexes` needs nothing else. The db scripts use `--env-file-if-exists`, so they run without a `.env.local`, and a `MONGODB_URI` set in the shell wins over the file.
+- `db:seed` now also refuses when `NODE_ENV=production`, before it connects (it already refused database names not ending in `_dev`).
+- Checked on a real production build with throwaway values: `mmm_session` is `Secure; HttpOnly; SameSite=lax` (also when cleared); a write with a missing or foreign `Origin` answers 403 `FORBIDDEN_ORIGIN`; `/w`, `/i`, `/u` send `X-Robots-Tag: noindex, nofollow` and a robots meta tag, and the `(auth)`, `(dashboard)` and onboarding pages carry the meta tag; an unexpected error answers `SERVER_ERROR` with no details; the server log held no password, token or secret.
+- Tests: 2 new in `tests/lib/env.test.ts` (313 in all).
 
 ### Phase 2, step 2D: the dashboard shows real numbers
 
@@ -172,6 +181,7 @@ Approved changes or choices not obvious from the design docs. Newest first.
 
 | Date | Decision |
 | --- | --- |
+| Nov 9, 2026 | First deploy: Preview deployments get their own address, so writes there fail the Origin check (`APP_URL` is one fixed address). Production variables are set for the Production scope only, so a preview never touches the production database. Indexes are created by hand with `db:indexes` before the first signup (production has `autoIndex` off). |
 | Nov 5, 2026 | Dashboard: `tasks.mine` in `GET /api/dashboard` is `{ pending, overdue, next }` with the next 3 open tasks (api-design.md said an array of 5); upcoming events also carry `type` and `guestCount`; `pendingInviteNames` and `setup` are new. A brand-new wedding shows the empty Upcoming events and My tasks cards above the checklist (Stitch's new-wedding frame hid them). Done checklist items show a tick and a struck-through title instead of disappearing one by one. The tasks progress track uses the `mist` token (#E5DEE8), the design's value. |
 | Nov 5, 2026 | Tasks page: filtering happens in the browser on the full list (the API's `listTasks` is called once, unfiltered), and the filters live in the address bar (`?view=mine&status=todo&event=…&q=…`). Tab, event and status changes add a history entry; typing in search replaces it. The page's counts come from the same list, never from the filtered rows. |
 | Nov 5, 2026 | Tasks page follows its Stitch screen where it differs from the Events page: the title is the larger size (`text-4xl sm:text-5xl`), event chips are not upper-case, and the My tasks tab shows the "Showing tasks assigned to you · N pending · N completed" strip. Not built: the design's "Active filter: Event … ✕" strip (the Event dropdown already shows and clears it), a "Nudge" button, and a date-grouped list (the design has none). Avatars use one lilac tint instead of the design's per-person colours (palette rule). |

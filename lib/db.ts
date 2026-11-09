@@ -1,6 +1,6 @@
 import "server-only";
 import mongoose from "mongoose";
-import { coreEnv } from "@/lib/env";
+import { mongoUri } from "@/lib/env";
 
 // One Mongoose connection per server instance, kept on globalThis so Next.js dev reloads
 // and Vercel's warm functions reuse it instead of opening a new one per request.
@@ -23,7 +23,7 @@ export function isDuplicateKey(err: unknown): boolean {
 
 export async function connectDb(): Promise<typeof mongoose> {
   if (cache.conn) return cache.conn;
-  cache.promise ??= mongoose.connect(coreEnv().MONGODB_URI, {
+  cache.promise ??= mongoose.connect(mongoUri(), {
     // Indexes are built automatically in development only; production uses `npm run db:indexes`.
     autoIndex: process.env.NODE_ENV === "development",
     maxPoolSize: 10,

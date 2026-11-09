@@ -15,8 +15,8 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:indexes": "tsx --conditions=react-server --env-file=.env.local scripts/create-indexes.ts",
-    "db:seed": "tsx --conditions=react-server --env-file=.env.local scripts/seed.ts"
+    "db:indexes": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/create-indexes.ts",
+    "db:seed": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/seed.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1156.0",

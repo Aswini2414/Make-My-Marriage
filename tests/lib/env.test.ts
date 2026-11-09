@@ -1,10 +1,27 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { appUrl } from "@/lib/env";
+import { appUrl, mongoUri } from "@/lib/env";
 
 const saved = { ...process.env };
 
 afterEach(() => {
   process.env = { ...saved };
+});
+
+describe("mongoUri", () => {
+  it("needs only MONGODB_URI, so db:indexes runs with nothing else set", () => {
+    delete process.env.JWT_SECRET;
+    delete process.env.TOKEN_ENCRYPTION_KEY;
+    delete process.env.APP_URL;
+    process.env.MONGODB_URI = "mongodb+srv://user:pw@cluster.example.net/mmm_prod";
+    expect(mongoUri()).toBe("mongodb+srv://user:pw@cluster.example.net/mmm_prod");
+  });
+
+  it("rejects a missing or non-MongoDB connection string", () => {
+    process.env.MONGODB_URI = "postgres://nope";
+    expect(() => mongoUri()).toThrow(/MONGODB_URI/);
+    delete process.env.MONGODB_URI;
+    expect(() => mongoUri()).toThrow(/MONGODB_URI/);
+  });
 });
 
 describe("appUrl", () => {

@@ -42,5 +42,7 @@ let mail: z.infer<typeof mailSchema> | undefined;
 export const coreEnv = () => (core ??= parse(coreSchema, "core"));
 /** APP_URL alone, for pages that need the address but nothing secret, such as metadata. */
 export const appUrl = () => parse(coreSchema.pick({ APP_URL: true }), "core").APP_URL;
+/** MONGODB_URI alone, so `npm run db:indexes` can run against any database with just this set. */
+export const mongoUri = () => parse(coreSchema.pick({ MONGODB_URI: true }), "database").MONGODB_URI;
 export const r2Env = () => (r2 ??= parse(r2Schema, "R2"));
 export const mailEnv = () => (mail ??= parse(mailSchema, "email"));

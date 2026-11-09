@@ -21,3 +21,5 @@ Requires Node.js 24.
 | `npm test`           | Vitest, with an in-memory MongoDB replica set        |
 | `npm run db:indexes` | Create all indexes in the database from `.env.local` |
 | `npm run db:seed`    | Fill `mmm_dev` with sample data                      |
+
+To put the app on Vercel, follow [docs/deployment.md](docs/deployment.md).
