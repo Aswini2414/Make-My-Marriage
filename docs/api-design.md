@@ -413,9 +413,11 @@ All guest endpoints need **Member** access.
 | PATCH | `/api/guests/:id` | Update a guest |
 | DELETE | `/api/guests/:id` | Delete a guest and their RSVPs |
 | POST | `/api/guests/bulk-events` | Add or remove events for many guests at once |
-| POST | `/api/guests/:id/regenerate-link` | Replace a guest's invitation link |
-| GET | `/api/guests/:id/link` | The guest's current invitation link, to copy and share by hand |
-| GET | `/api/guests/import/template` | Download the CSV template |
+| POST | `/api/guests/bulk-delete` | Delete many guests at once |
+| GET | `/api/guests/households` | The household names in use, for the filter dropdown |
+| POST | `/api/guests/:id/regenerate-link` | Replace a guest's invitation link (Phase 4) |
+| GET | `/api/guests/:id/link` | The guest's current invitation link, to copy and share by hand (Phase 4) |
+| GET | `/api/guests/import/template` | Download the CSV or Excel template |
 | POST | `/api/guests/import/preview` | Check an uploaded file and show row errors |
 | POST | `/api/guests/import/commit` | Save the checked rows |
 
@@ -445,13 +447,13 @@ All guest endpoints need **Member** access.
 
 | Query | Meaning |
 | --- | --- |
-| `q` | Search name, email, phone or household |
+| `q` | Search name, email, phone or household. Case-insensitive; a phone search ignores spaces, so `98480` finds `+91 98480 12345` |
 | `eventId` | Only guests invited to this event |
-| `rsvpStatus` | `attending`, `declined` or `not_replied`. Needs `eventId` |
+| `rsvpStatus` | `attending`, `declined` or `not_replied`. Needs `eventId` (400 otherwise). Until Phase 4 nobody has replied, so `not_replied` matches everyone at the event and the others match no one |
 | `inviteStatus` | `not_sent`, `sent` or `opened` |
 | `household` | Exact household name |
 | `sort` | `name` (default) or `-createdAt` |
-| `limit`, `cursor` | Pagination |
+| `limit`, `cursor` | Pagination. The cursor is opaque (the page position) |
 
 Returns `{ "items": [ … ], "nextCursor": "…", "total": 412 }`. `total` is the count matching the filters, for showing "412 guests".
 
@@ -462,7 +464,15 @@ Returns `{ "items": [ … ], "nextCursor": "…", "total": 412 }`. `total` is th
   "household"?: "…", "eventIds"?: ["…"] }
 ```
 
-Returns `201` with `{ "guest": { … } }`. Creates the invitation token. 409 `GUEST_EMAIL_EXISTS` if another guest in this wedding has the same email.
+Returns `201` with `{ "guest": { … } }`. Creates the invitation token. `name` is trimmed; `email` is lowercased; `phone` accepts digits, spaces, `+`, `-` and brackets and is stored in one form (`+91 98480 12345` for an Indian number, typed with or without `+91` or a leading `0`). Every `eventIds` entry must be one of this wedding's events, or 400 with `fields.eventIds`.
+
+**Duplicates are a warning, not an error.** If another guest in this wedding has the same email or the same phone, nothing is saved and the answer is `200`:
+
+```json
+{ "saved": false, "duplicates": [ { "id": "…", "name": "Lakshmi Rao", "email": "…", "phone": "…", "matchedOn": ["email", "phone"] } ] }
+```
+
+The page shows the matches and, if the member confirms, sends the same body again with `"confirmDuplicates": true`, which saves. `GUEST_EMAIL_EXISTS` is no longer used.
 
 ### GET /api/guests/:id
 
@@ -470,7 +480,7 @@ Returns `{ "guest": { … }, "rsvps": [ { "eventId": "…", "attending": true, "
 
 ### PATCH /api/guests/:id
 
-Takes any guest fields. Removing an event from `eventIds` also deletes the guest's RSVP for it.
+Takes any guest fields; `null` clears an optional one. `eventIds` replaces the whole list. Removing an event from `eventIds` also deletes the guest's RSVP for it (from Phase 4, when RSVPs exist). The duplicate warning above applies only to an email or phone that is being changed, and never counts the guest itself. Returns `{ "guest": { … } }`.
 
 ### POST /api/guests/bulk-events
 
@@ -478,7 +488,19 @@ Takes any guest fields. Removing an event from `eventIds` also deletes the guest
 { "guestIds": ["…", "…"], "add"?: ["<eventId>"], "remove"?: ["<eventId>"] }
 ```
 
-Up to 500 guests per call. Returns `{ "updated": 120 }`.
+Up to 500 guests per call; send at least one of `add` and `remove`. Every guest must be in this wedding, or the whole call answers 404 and changes nothing. Returns `{ "updated": 120 }`.
+
+### POST /api/guests/bulk-delete
+
+```json
+{ "guestIds": ["…", "…"] }
+```
+
+Up to 500 guests per call, with the same all-or-404 rule. Deletes the guests and everything that depends on them. Returns `{ "deleted": 120 }`.
+
+### GET /api/guests/households
+
+Returns `{ "items": [ { "name": "Rao family, Vizag", "count": 6 } ] }`, sorted by name. A household is just the text typed on the guest; there is no separate record.
 
 ### POST /api/guests/:id/regenerate-link
 
@@ -488,22 +510,24 @@ Makes a new token. The old link stops working at once. Returns `{ "link": "https
 
 Import is two steps, so the member sees errors before anything is saved.
 
-**1. Preview**, `POST /api/guests/import/preview`, sent as `multipart/form-data` with one field, `file`: a `.csv` or `.xlsx` file of up to 2 MB and 2,000 rows.
+**1. Preview**, `POST /api/guests/import/preview`, sent as `multipart/form-data` with one field, `file`: a `.csv` or `.xlsx` file of up to 2 MB and 2,000 rows. The type is decided from the file's contents as well as its name; anything else is 400 `FILE_TYPE_NOT_ALLOWED`, a file over 2 MB is 413 `FILE_TOO_LARGE`, and an unreadable file, one with no `name` column, or one with too many rows is 400 `IMPORT_FILE_INVALID`. The file is read in memory and never stored. Cells are read as text only; nothing in the file is ever evaluated.
 
 ```json
 {
   "rows": [
-    { "row": 2, "data": { "name": "Lakshmi Rao", "email": "…", "eventIds": ["…"] }, "errors": {} },
+    { "row": 2, "data": { "name": "Lakshmi Rao", "email": "…", "events": "Sangeet", "eventIds": ["…"] }, "errors": {} },
     { "row": 3, "data": { "name": "", "email": "bad-email" },
       "errors": { "name": "Name is required.", "email": "Enter a valid email address." } },
     { "row": 4, "data": { … }, "errors": { "events": "No event called \"Sangit\"." } }
   ],
-  "valid": 410, "invalid": 2, "duplicates": 3
+  "total": 415, "valid": 410, "invalid": 2, "duplicates": 3
 }
 ```
 
-- The `events` column is matched to event names, ignoring case.
-- `duplicates` counts rows whose email already belongs to a guest in this wedding, or appears twice in the file.
+- The `events` column lists event names separated by semicolons (`Sangeet; Wedding (Muhurtham)`), matched to this wedding's event names, ignoring case. A name that matches no event is an error on that row.
+- `row` is the row number in the spreadsheet (the header is row 1). Errors are keyed by field: `name`, `email`, `phone`, `relation`, `household`, `events`.
+- `duplicates` counts valid rows whose email or phone already belongs to a guest in this wedding, or repeats an earlier row in the file. Such a row has `"duplicate": { "kind": "existing", "guestId": "…", "name": "…" }` or `{ "kind": "file", "row": 4 }`. A duplicate is a warning: the row is still valid.
+- Columns can be in any order and extra columns are ignored.
 - Nothing is saved at this step.
 
 **2. Commit**, `POST /api/guests/import/commit`:
@@ -513,12 +537,13 @@ Import is two steps, so the member sees errors before anything is saved.
 ```
 
 - `rows` holds the valid rows from the preview, sent back by the page.
-- `onDuplicate` is `skip` or `update`. `update` merges the new details into the existing guest.
-- Every row is validated again on the server. Returns `{ "created": 405, "updated": 0, "skipped": 5 }`.
+- `onDuplicate` is `skip` (leave out rows that repeat a saved guest or an earlier row) or `add` (save them anyway). Merging into the existing guest is not built.
+- Every row is validated again on the server, and its events must be this wedding's. A row that fails is not saved and is counted as `invalid`. Returns `{ "created": 405, "skipped": 5, "invalid": 0 }`.
+- The body may be up to about 1.5 MB, enough for 2,000 rows.
 
 ### GET /api/guests/import/template
 
-Returns a `.csv` file with the header row `name,email,phone,relation,household,events` and one example row.
+`?format=csv` (default) or `xlsx`. Returns a file with the header row `name,email,phone,relation,household,events` and one example row that uses the wedding's own first events. Every cell in an export goes through `safeCell` (`lib/spreadsheet.ts`), which puts a `'` in front of text starting with `=`, `+`, `-`, `@`, a tab or a carriage return, so a spreadsheet never runs it as a formula.
 
 ## Invitations
 
@@ -1192,7 +1217,7 @@ Every error code the API returns, grouped by area. The UI matches on `code`, and
 
 | Code | Status | When |
 | --- | --- | --- |
-| `GUEST_EMAIL_EXISTS` | 409 | Another guest in this wedding has the email |
+| `GUEST_EMAIL_EXISTS` | 409 | Not used. A duplicate email or phone is a warning (see `POST /api/guests`) |
 | `IMPORT_FILE_INVALID` | 400 | Not a `.csv` or `.xlsx`, missing the header row, or over 2,000 rows |
 | `SEND_IN_PROGRESS` | 409 | Starting a send while another is in progress |
 | `SEND_BUSY` | 409 | A batch for this send is already running. Try again shortly |

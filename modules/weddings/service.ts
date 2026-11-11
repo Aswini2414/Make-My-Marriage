@@ -5,6 +5,7 @@ import { ApiError } from "@/lib/errors";
 import { toObjectId } from "@/lib/ids";
 import { encryptToken, generateToken, hashToken } from "@/lib/tokens";
 import { Event } from "@/modules/events/model";
+import { Guest } from "@/modules/guests/model";
 import { MemberInvite, Membership } from "@/modules/members/model";
 import { QrCode } from "@/modules/qr/model";
 import { Task } from "@/modules/tasks/model";
@@ -188,6 +189,10 @@ export async function checkSlug(weddingId: string, slug: string): Promise<SlugCh
  * Every module that adds a wedding-scoped collection must add its delete here, and the R2
  * files under weddings/<id>/ must be deleted after this commits (files module, Phase 8).
  *
+ * Guests are deleted here by weddingId. When a later phase adds something that points at guests,
+ * its whole collection goes here too: rsvps and invitationSends (Phase 4), gifts (Phase 5).
+ * Deleting ONE guest is different and goes through `removeGuests` (modules/guests/dependents.ts).
+ *
  * Deleting a single event is a different case: a module whose records point at an event
  * (guests, rsvps, expenses, gifts, tasks, vendors, photos) must unlink or delete them in
  * modules/events/dependents.ts, as well as being deleted here with the wedding.
@@ -208,6 +213,7 @@ export async function deleteWedding(weddingId: string, confirmSlug: string): Pro
       }
       await QrCode.deleteMany({ weddingId: wid }, { session });
       await Event.deleteMany({ weddingId: wid }, { session });
+      await Guest.deleteMany({ weddingId: wid }, { session });
       await Task.deleteMany({ weddingId: wid }, { session });
       await MemberInvite.deleteMany({ weddingId: wid }, { session });
       await Membership.updateMany(

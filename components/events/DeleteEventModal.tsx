@@ -35,7 +35,12 @@ function impactLines(i: Impact): Line[] {
   if (i.guests > 0) {
     lines.push({
       Icon: PersonOffIcon,
-      text: <>{strong(plural(i.guests, "guest"))} will no longer be invited to this event</>,
+      text: (
+        <>
+          {strong(plural(i.guests, "guest"))} will no longer be invited to this event (they stay on
+          your guest list)
+        </>
+      ),
     });
   }
   if (i.rsvps > 0) {

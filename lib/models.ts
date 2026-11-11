@@ -6,6 +6,7 @@ import "server-only";
 import "@/lib/rate-limit";
 import "@/modules/auth/model";
 import "@/modules/events/model";
+import "@/modules/guests/model";
 import "@/modules/members/model";
 import "@/modules/qr/model";
 import "@/modules/tasks/model";

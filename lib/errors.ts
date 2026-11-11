@@ -81,6 +81,9 @@ const DEFAULT_MESSAGES: Partial<Record<ErrorCode, string>> = {
   TOO_MANY_TYPES: "You can add up to 30 custom event types.",
   ASSIGNEE_NOT_MEMBER: "Choose someone who is part of this wedding.",
   NOT_ASSIGNEE: "Only the assignee or an Admin can do that.",
+  IMPORT_FILE_INVALID: "We couldn't read that file. Use the template and save it as .csv or .xlsx.",
+  FILE_TOO_LARGE: "That file is too large.",
+  FILE_TYPE_NOT_ALLOWED: "Upload a .csv or .xlsx file.",
 };
 
 export type FieldErrors = Record<string, string>;

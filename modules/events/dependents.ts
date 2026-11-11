@@ -1,5 +1,8 @@
 import "server-only";
 import type { ClientSession, Types } from "mongoose";
+import { invitedCountsByEvent } from "@/modules/guests/counts";
+import { unlinkEvents } from "@/modules/guests/dependents";
+import { Guest } from "@/modules/guests/model";
 import { QrCode } from "@/modules/qr/model";
 import { Task } from "@/modules/tasks/model";
 import type { ImpactKey } from "./format";
@@ -27,8 +30,11 @@ const notBuiltYet: EventDependent = {
 };
 
 export const eventDependents: Record<ImpactKey, EventDependent> = {
-  // Phase 3: pull the event out of guests.eventIds. Count = guests invited.
-  guests: notBuiltYet,
+  // The event comes out of guests.eventIds (guests stay). Count = guests invited.
+  guests: {
+    count: ({ weddingId, eventId }) => Guest.countDocuments({ weddingId, eventIds: eventId }),
+    cleanup: ({ weddingId, eventId }, session) => unlinkEvents(weddingId, [eventId], session),
+  },
   // Phase 4: delete the event's rsvps.
   rsvps: notBuiltYet,
   // Phase 5: clear eventId on expenses and on gifts.
@@ -54,12 +60,12 @@ export const eventDependents: Record<ImpactKey, EventDependent> = {
   photos: notBuiltYet,
 };
 
-/** Guests invited to each event, for `guestCount` on the event object. Phase 3 fills this in. */
-export async function guestCounts(
-  _weddingId: Types.ObjectId,
+/** Guests invited to each event, for `guestCount` on the event object. */
+export function guestCounts(
+  weddingId: Types.ObjectId,
   eventIds: Types.ObjectId[],
 ): Promise<Map<string, number>> {
-  return new Map(eventIds.map((id) => [String(id), 0]));
+  return invitedCountsByEvent(weddingId, eventIds);
 }
 
 export type RsvpCounts = {

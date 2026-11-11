@@ -5,6 +5,7 @@ import { ApiError } from "@/lib/errors";
 import { toObjectId } from "@/lib/ids";
 import { Event } from "@/modules/events/model";
 import { listUpcomingEvents } from "@/modules/events/service";
+import { hasGuests } from "@/modules/guests/service";
 import { MemberInvite, Membership } from "@/modules/members/model";
 import { type Actor, listTasks } from "@/modules/tasks/service";
 import { Wedding } from "@/modules/weddings/model";
@@ -21,7 +22,7 @@ export async function getDashboard(weddingId: string, actor: Actor): Promise<Das
   const today = todayIST();
   const isAdmin = actor.role === "admin";
 
-  const [wedding, upcoming, tasks, eventCount, members, invites] = await Promise.all([
+  const [wedding, upcoming, tasks, eventCount, hasGuest, members, invites] = await Promise.all([
     Wedding.findById(wid).select("brideName groomName weddingDate").lean(),
     listUpcomingEvents(weddingId, today, UPCOMING_EVENTS),
     // The task service does the counting and the overdue rule; this view is "my open tasks",
@@ -29,6 +30,7 @@ export async function getDashboard(weddingId: string, actor: Actor): Promise<Das
     // counts ignore both the filters and the limit.
     listTasks(weddingId, actor, { view: "mine", status: "todo" }, NEXT_TASKS),
     Event.countDocuments({ weddingId: wid }),
+    hasGuests(weddingId),
     Membership.countDocuments({ weddingId: wid, status: "active" }),
     // Only Admins see invites. The TTL index removes expired ones a little late, so filter here.
     isAdmin
@@ -81,8 +83,7 @@ export async function getDashboard(weddingId: string, actor: Actor): Promise<Das
     setup: {
       events: eventCount > 0,
       tasks: summary.total > 0,
-      // TODO(Phase 3): true once the wedding has a guest.
-      guests: false,
+      guests: hasGuest,
       // Someone else has joined. A pending invite does not count: it can expire.
       team: members > 1,
     },

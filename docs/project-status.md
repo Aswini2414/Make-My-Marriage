@@ -1,6 +1,6 @@
 # Make My Marriage — Project Status
 
-**Last updated:** Nov 9, 2026 · **Branch:** `dev` · **Last feature commit:** Phase 2D, the dashboard numbers (see `git log`), followed by the first-deploy preparation (see Done). 2C (tasks backend and Tasks page) is `d8c14dc`, 2A and 2B are `3eb6ea0`, Phase 1 is `715c68d`.
+**Last updated:** Nov 11, 2026 · **Branch:** `dev` · **Last feature commit:** Phase 3, step 3A, the guests backend (see `git log`). Before it: Phase 2D (the dashboard numbers) and the first-deploy preparation, which is only prepared, **not deployed** (see Done). 2C (tasks backend and Tasks page) is `d8c14dc`, 2A and 2B are `3eb6ea0`, Phase 1 is `715c68d`.
 
 This file tracks how far the build has got. It is a progress log, not a design document: the PRD, system design, database design and API design stay the source of truth for _what_ to build. Read it at the start of every session, and update it whenever a feature or phase step is finished (see [How to update](#how-to-update-this-file)).
 
@@ -12,7 +12,7 @@ This file tracks how far the build has got. It is a progress log, not a design d
 | Landing page (added outside the PRD phases) | ✅ Done |
 | 1. Setup and accounts | ✅ Done (1A–1E) |
 | 2. Events, tasks and dashboard | ✅ Done (2A–2D) |
-| 3. Guests | ⬜ Not started |
+| 3. Guests | 🟡 In progress: 3A backend done, 3B Guests page next |
 | 4. Invitations and RSVP | ⬜ Not started |
 | 5. Money: expenses and gifts | ⬜ Not started |
 | 6. Vendors | ⬜ Not started |
@@ -20,9 +20,32 @@ This file tracks how far the build has got. It is a progress log, not a design d
 | 8. Photo sharing | ⬜ Not started |
 | 9. Testing and launch | ⬜ Not started |
 
-**Next up:** Phase 3, Guests: the guest list, CSV and Excel import, assigning guests to events, and the guest counts that fill the dashboard's RSVP card and the events' invited numbers (each place has a `TODO(Phase 3)`). Open decision from 1D: build cover-photo upload with the files module (Phase 8), or earlier. Cover-photo upload is still waiting for that module.
+**Next up:** Phase 3, step 3B: the Guests page (`/guests`) on top of the 3A API: list with search and filters, add and edit drawer with the duplicate confirmation, bulk actions, and the import flow (template, preview with row errors, commit). When it lands, set `built: true` on the dashboard's "Add your guests" checklist item (`modules/dashboard/format.ts`). The dashboard's RSVP card stays `null` until Phase 4. Open decision from 1D: build cover-photo upload with the files module (Phase 8), or earlier. Cover-photo upload is still waiting for that module.
 
 ## Done
+
+### Phase 3, step 3A: manual-test fixes
+
+A manual pass over the guests API (template, preview, commit, file refusals, duplicates, event delete, `db:indexes`) found these, now fixed:
+
+- `npm run db:indexes` no longer crashes on a clashing index, such as the old **unique** `weddingId_1_email_1` on guests: it prints which index to drop, carries on with the other collections and exits 1 at the end. While that old index exists, confirmed duplicate emails and import with `onDuplicate: add` answer 500, so drop it in any database created before 3A's change (`db.guests.dropIndex("weddingId_1_email_1")`), then run `db:indexes`.
+- CSV import reads Excel's own "CSV (Comma delimited)" (Windows-1252: accents and curly quotes) as well as UTF-8, and a `;`-separated file (decided by the header line only, so `;` between event names still works). Files with control characters are refused as before.
+- Clearer refusals: old `.xls` and UTF-16 "Unicode Text" say what to save as; "too large" states the 2 MB limit. The delete-event modal says the guests stay on the guest list.
+- Rule for 3B: commit trusts the `eventIds` it is sent, so the page must send only rows the preview marked valid (an unknown event name is reported by preview, not re-checked by commit).
+- Code review fixes: the household filter is exact and case-sensitive like the household dropdown; a UTF-8 BOM no longer hides the `name` header in the Windows-1252 fallback; the list's count and page now load together.
+- Tests: 1 new in `tests/modules/guests.test.ts` (369 in all).
+- Review items **not** fixed, for later: (1) `assertSafeZip` trusts the sizes a zip declares, so a forged .xlsx under 2 MB could still inflate large in memory (consider a streaming size cap); (2) event ownership is checked outside the transaction, so deleting an event at the same moment as adding a guest to it can leave a dangling event id; (3) a failed 2,000-row `insertMany` can save part of the batch; (4) the `{ weddingId, name }` index has no collation, so the name sort is done in memory (fix with a named, collated index and a migration note); (5) list paging uses an offset cursor (already a recorded decision); (6) small clean-ups: `parseUpload` copies the file several times, and the session/transaction boilerplate is repeated across services.
+
+### Phase 3, step 3A: guests backend (no UI)
+
+- API (all Member access, any active Admin or Manager): `GET` and `POST /api/guests`, `GET`, `PATCH` and `DELETE /api/guests/:id`, `POST /api/guests/bulk-events`, `POST /api/guests/bulk-delete`, `GET /api/guests/households`, and import: `GET /api/guests/import/template?format=csv|xlsx`, `POST /api/guests/import/preview`, `POST /api/guests/import/commit`. Logic in `modules/guests/` (`service.ts`, `import.ts`, `import-file.ts`, `import-template.ts`); browser-safe Zod schemas and types for 3B in `schema.ts`, `types.ts`, `phone.ts`; model in `model.ts` with the documented indexes. `docs/api-design.md` and `docs/database-design.md` are updated.
+- "Invited to" is the embedded `guests.eventIds` array (database-design.md), not a second collection. No side tagging, no travel fields. Each guest gets a personal invitation token (hash plus encrypted copy) when created; sending, RSVP and `regenerate-link` are Phase 4.
+- Phone numbers are stored in one form (`+91 98480 12345` for Indian numbers typed with or without `+91` or `0`, brackets and hyphens allowed). Search matches phones however the digits are spaced.
+- A duplicate email or phone in the same wedding is a warning: create and update answer 200 `{ saved: false, duplicates }` and save nothing until the request is repeated with `confirmDuplicates: true`. Events given must be the wedding's own (400 `fields.eventIds`); other weddings' guest ids answer 404, and a bulk call with one foreign id changes nothing.
+- Import: 2 MB, 2,000 rows, `.csv` or `.xlsx` only, decided by content as well as name (renamed zips, programs, PDFs and old `.xls` are refused); zip contents are size-checked before exceljs opens them; cells are read as text and never evaluated; the file is held in memory and never stored. Preview reports per-row errors (missing name, bad email or phone, too long, unknown event name), duplicates in the file and against saved guests, and totals, and saves nothing. Commit re-validates every row and saves only valid ones; `onDuplicate` is `skip` or `add`. `safeCell` in `lib/spreadsheet.ts` neutralises leading `=`, `+`, `-`, `@`, tab and carriage return and must be used by every export.
+- One delete path: `removeGuests` in `modules/guests/dependents.ts` (marked places for Phase 4 RSVPs and invitation sends, Phase 5 gifts). The event delete preview shows the real "guests" count and deleting an event removes it from `eventIds`; `deleteWedding` deletes the wedding's guests in its transaction. `invitedCountsByEvent` (`modules/guests/counts.ts`) is the one source of "N invited": the events list, `GET /api/events/:id` and the dashboard's upcoming-events card use it. `GET /api/dashboard` `setup.guests` is now real.
+- `lib/api.ts` gained `parseUpload` (capped multipart read, 413 `FILE_TOO_LARGE` while streaming) and an optional size argument on `parseBody`.
+- Tests: `tests/modules/guests.test.ts` (55, real database); the whole suite is 368.
 
 ### Preparing the first production deploy to Vercel (not deployed yet)
 
@@ -173,7 +196,7 @@ A manual end-to-end test found 15 problems; all are fixed and re-checked in Chro
 
 ## Not started yet
 
-Phases 2–9. Every `(dashboard)` page except the dashboard and Members is still a placeholder heading, and so are the public pages (`/w`, `/i`, `/u`).
+Phases 3B–9. Every `(dashboard)` page except the dashboard and Members is still a placeholder heading, and so are the public pages (`/w`, `/i`, `/u`).
 
 ## Decisions made during the build
 
@@ -181,6 +204,8 @@ Approved changes or choices not obvious from the design docs. Newest first.
 
 | Date | Decision |
 | --- | --- |
+| Nov 10, 2026 | Guests, from the 3A brief where it differs from the docs: a duplicate email or phone is a warning, so the `{ weddingId, email }` index is partial but **not unique** and `GUEST_EMAIL_EXISTS` is unused; create and update answer 200 `{ saved: false, duplicates }` until `confirmDuplicates: true` is sent. The import `events` column is separated by **semicolons** (not commas). Import commit takes `onDuplicate: skip \| add` (api-design said `skip \| update`; merging is not built) and answers `{ created, skipped, invalid }`. The import route stays `import/preview` (the brief called it "validate"). Added `POST /api/guests/bulk-delete` and `GET /api/guests/households`. Phone normalisation and the unkept original typing are our interpretation of "Digits, spaces and `+`". |
+| Nov 10, 2026 | The guest list cursor is an opaque page offset (guest lists are a few thousand at most), so a guest added while someone scrolls can shift a page. `rsvpStatus` is in the contract now but until Phase 4 only `not_replied` matches anyone; `inviteStatus` is `not_sent` for every guest. The dashboard's "Add your guests" checklist item stays `built: false` until the Guests page exists, because it links to a placeholder. |
 | Nov 9, 2026 | First deploy: Preview deployments get their own address, so writes there fail the Origin check (`APP_URL` is one fixed address). Production variables are set for the Production scope only, so a preview never touches the production database. Indexes are created by hand with `db:indexes` before the first signup (production has `autoIndex` off). |
 | Nov 5, 2026 | Dashboard: `tasks.mine` in `GET /api/dashboard` is `{ pending, overdue, next }` with the next 3 open tasks (api-design.md said an array of 5); upcoming events also carry `type` and `guestCount`; `pendingInviteNames` and `setup` are new. A brand-new wedding shows the empty Upcoming events and My tasks cards above the checklist (Stitch's new-wedding frame hid them). Done checklist items show a tick and a struck-through title instead of disappearing one by one. The tasks progress track uses the `mist` token (#E5DEE8), the design's value. |
 | Nov 5, 2026 | Tasks page: filtering happens in the browser on the full list (the API's `listTasks` is called once, unfiltered), and the filters live in the address bar (`?view=mine&status=todo&event=…&q=…`). Tab, event and status changes add a history entry; typing in search replaces it. The page's counts come from the same list, never from the filtered rows. |

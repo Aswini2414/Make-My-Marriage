@@ -185,7 +185,7 @@ One document per invited person or family contact.
 | `weddingId` | ObjectId | Yes | Refers to `weddings` |
 | `name` | String | Yes | 1 to 100 characters |
 | `email` | String | No | Valid email, lowercase. Needed to receive an emailed invitation |
-| `phone` | String | No | Digits, spaces and `+` only, up to 20 characters |
+| `phone` | String | No | Up to 20 characters. Stored in one normalised form: `+91 98480 12345` for an Indian number (typed with or without `+91` or a leading `0`), `+` and digits for other international numbers, digits otherwise. The way it was typed is not kept |
 | `relation` | String | No | Up to 60 characters, such as "Mother's cousin" |
 | `household` | String | No | Up to 80 characters. Groups guests from one family, such as "Rao family, Vizag" |
 | `eventIds` | \[ObjectId\] | Yes | Refers to `events`. Default empty |
@@ -196,9 +196,9 @@ One document per invited person or family contact.
 
 **The guest's link** is also stored as `inviteTokenEnc` (String, required): the token encrypted with `TOKEN_ENCRYPTION_KEY`. Reminder emails decrypt it to include the same link again. A database leak alone doesn't expose working links, because the key lives only in the environment.
 
-**Import from CSV or Excel:** the template's columns are `name`, `email`, `phone`, `relation`, `household` and `events`. The `events` column lists event names separated by commas, matched to the wedding's events. Each row is validated with the same Zod schema before anything is saved, and the import shows errors per row.
+**Import from CSV or Excel:** the template's columns are `name`, `email`, `phone`, `relation`, `household` and `events`. The `events` column lists event names separated by semicolons, matched to the wedding's events ignoring case. Each row is validated with the same Zod schema before anything is saved, and the import shows errors per row.
 
-**Duplicates:** two guests in the same wedding with the same email are refused, through a partial unique index on `weddingId` and `email` where `email` exists.
+**Duplicates:** two guests in the same wedding may share an email or phone. The app warns and asks the member to confirm (it compares the stored forms), so the index on `weddingId` and `email` is partial but **not unique**.
 
 ### rsvps
 
@@ -425,7 +425,7 @@ Every index below is declared in its Mongoose schema and created when the app st
 | `weddings` | `{ slug: 1 }` | unique | Opening the wedding website |
 | `events` | `{ weddingId: 1, date: 1, time: 1 }` |  | Events in order; upcoming events on the dashboard |
 | `guests` | `{ weddingId: 1, name: 1 }` |  | Guest list sorted by name |
-| `guests` | `{ weddingId: 1, email: 1 }` | unique, partial where `email` exists | No duplicate guest emails |
+| `guests` | `{ weddingId: 1, email: 1 }` | partial where `email` exists | Finding a guest with the same email (the duplicate warning) |
 | `guests` | `{ weddingId: 1, eventIds: 1 }` |  | Guests invited to an event |
 | `guests` | `{ inviteTokenHash: 1 }` | unique | Opening a guest's invitation link |
 | `rsvps` | `{ guestId: 1, eventId: 1 }` | unique | Saving and reading a guest's answers |

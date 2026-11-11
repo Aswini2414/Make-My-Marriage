@@ -145,7 +145,11 @@ export async function updateEvent(
   return toEventView(event, guestCount);
 }
 
-/** What deleting the event would touch, for the confirmation. */
+/**
+ * What deleting the event would touch, for the confirmation. Every number comes from the
+ * `count` of that module's entry in `eventDependents` (dependents.ts); `guests` is the real
+ * number of guests invited. A module that points at events adds its count there, not here.
+ */
 export async function getDeleteImpact(weddingId: string, id: string): Promise<Impact> {
   await connectDb();
   const wid = toObjectId(weddingId);

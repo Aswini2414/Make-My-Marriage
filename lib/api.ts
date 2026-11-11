@@ -43,12 +43,14 @@ function redactPath(path: string) {
   return path.replace(/[A-Za-z0-9_-]{32,}/g, "[token]");
 }
 
-/** The body as text, or a validation error as soon as it passes `max` bytes. */
-async function readCapped(req: Request, max: number): Promise<string> {
-  if (Number(req.headers.get("content-length") ?? 0) > max) {
-    throw new ApiError("VALIDATION_FAILED", TOO_BIG);
-  }
-  if (!req.body) return "";
+/** The body's bytes, or `tooBig()` as soon as it passes `max` bytes. */
+async function readCappedBytes(
+  req: Request,
+  max: number,
+  tooBig: () => ApiError,
+): Promise<Uint8Array> {
+  if (Number(req.headers.get("content-length") ?? 0) > max) throw tooBig();
+  if (!req.body) return new Uint8Array();
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -58,20 +60,73 @@ async function readCapped(req: Request, max: number): Promise<string> {
     size += value.byteLength;
     if (size > max) {
       await reader.cancel();
-      throw new ApiError("VALIDATION_FAILED", TOO_BIG);
+      throw tooBig();
     }
     chunks.push(value);
   }
-  return new TextDecoder().decode(Buffer.concat(chunks));
+  return Buffer.concat(chunks);
+}
+
+/** The body as text, or a validation error as soon as it passes `max` bytes. */
+async function readCapped(req: Request, max: number): Promise<string> {
+  const bytes = await readCappedBytes(req, max, () => new ApiError("VALIDATION_FAILED", TOO_BIG));
+  return new TextDecoder().decode(bytes);
+}
+
+// Room for the multipart boundaries and headers around the file itself.
+const MULTIPART_OVERHEAD = 16_000;
+
+/**
+ * Reads a multipart upload with one file field. The size is counted in bytes while reading, so a
+ * file over `maxBytes` (or a false Content-Length) is cut off with 413 FILE_TOO_LARGE instead of
+ * being buffered whole. The file is held in memory only; nothing is written to disk.
+ */
+export async function parseUpload(
+  req: Request,
+  field: string,
+  maxBytes: number,
+): Promise<{ name: string; bytes: Uint8Array }> {
+  const tooLarge = `That file is too large. The limit is ${Math.round((maxBytes / 1024 / 1024) * 10) / 10} MB.`;
+  const type = req.headers.get("content-type") ?? "";
+  if (!/^multipart\/form-data;/i.test(type)) {
+    throw new ApiError("VALIDATION_FAILED", "Send the file as multipart/form-data.", {
+      fields: { [field]: "Choose a file to upload." },
+    });
+  }
+  const body = await readCappedBytes(
+    req,
+    maxBytes + MULTIPART_OVERHEAD,
+    () => new ApiError("FILE_TOO_LARGE", tooLarge),
+  );
+  let form: FormData;
+  try {
+    form = await new Response(Buffer.from(body), { headers: { "content-type": type } }).formData();
+  } catch {
+    throw new ApiError("VALIDATION_FAILED", "The upload could not be read.", {
+      fields: { [field]: "Choose a file to upload." },
+    });
+  }
+  const file = form.get(field);
+  if (!(file instanceof File)) {
+    throw new ApiError("VALIDATION_FAILED", undefined, {
+      fields: { [field]: "Choose a file to upload." },
+    });
+  }
+  if (file.size > maxBytes) throw new ApiError("FILE_TOO_LARGE", tooLarge);
+  return { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) };
 }
 
 /** Reads and validates a JSON body. Bad JSON counts as a validation failure. */
-export async function parseBody<T extends z.ZodType>(req: Request, schema: T): Promise<z.infer<T>> {
+export async function parseBody<T extends z.ZodType>(
+  req: Request,
+  schema: T,
+  maxBytes: number = MAX_BODY_BYTES,
+): Promise<z.infer<T>> {
   // Real bodies here are a few hundred bytes. The cap is counted in bytes while reading,
   // so a body with no Content-Length (or a false one) is cut off instead of buffered whole.
   let data: unknown;
   try {
-    data = JSON.parse(await readCapped(req, MAX_BODY_BYTES));
+    data = JSON.parse(await readCapped(req, maxBytes));
   } catch (err) {
     if (err instanceof ApiError) throw err;
     throw new ApiError("VALIDATION_FAILED", "The request body must be JSON.");

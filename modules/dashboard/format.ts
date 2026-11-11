@@ -43,7 +43,8 @@ export function setupItems(setup: Dashboard["setup"]): SetupItem[] {
       text: "Type them in or import a CSV or Excel file.",
       action: "Add guests",
       done: setup.guests,
-      // TODO(Phase 3): true once the Guests module exists.
+      // Stays false until 3B: the setup item links to /guests, which is still a placeholder page,
+      // so showing it would leave the checklist stuck open. Flip to true with the Guests page.
       built: false,
     },
     {
