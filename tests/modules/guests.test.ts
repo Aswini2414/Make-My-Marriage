@@ -1,3 +1,4 @@
+import { deflateRawSync } from "node:zlib";
 import ExcelJS from "exceljs";
 import mongoose, { Types } from "mongoose";
 import { NextRequest } from "next/server";
@@ -20,6 +21,7 @@ import { SESSION_COOKIE, signSession } from "@/lib/session";
 import { Event } from "@/modules/events/model";
 import { invitedCountsByEvent } from "@/modules/guests/counts";
 import { Guest } from "@/modules/guests/model";
+import { insertGuests } from "@/modules/guests/service";
 import { normalizePhone } from "@/modules/guests/phone";
 import { Wedding } from "@/modules/weddings/model";
 import { APP, createMember, createUser, emptyDb, request, resetDb } from "../helpers";
@@ -1097,5 +1099,125 @@ describe("events, counts and wedding delete", () => {
     expect(res.status).toBe(204);
     expect(await Guest.countDocuments({ weddingId })).toBe(0);
     expect(await Guest.findById(theirs._id).lean()).not.toBeNull();
+  });
+});
+
+// ---- review fixes ----
+
+/** A one-entry zip whose directory declares `declared` bytes unpacked, whatever the data really is. */
+function zipDeclaring(data: Buffer, declared: number) {
+  const body = deflateRawSync(data);
+  const name = Buffer.from("xl/sheet.xml");
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(8, 8); // deflate
+  local.writeUInt32LE(body.length, 18);
+  local.writeUInt32LE(declared, 22);
+  local.writeUInt16LE(name.length, 26);
+  const central = Buffer.alloc(46);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(8, 10);
+  central.writeUInt32LE(body.length, 20);
+  central.writeUInt32LE(declared, 24);
+  central.writeUInt16LE(name.length, 28);
+  central.writeUInt32LE(0, 42); // local header at the start
+  const directoryAt = local.length + name.length + body.length;
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(1, 8);
+  end.writeUInt16LE(1, 10);
+  end.writeUInt32LE(central.length + name.length, 12);
+  end.writeUInt32LE(directoryAt, 16);
+  return new Uint8Array(Buffer.concat([local, name, body, central, name, end]));
+}
+
+describe("review fixes", () => {
+  it("stops a zip that lies about its unpacked size", async () => {
+    const { userId } = await setup();
+    // 60 MB of zeros packs to about 60 KB; the directory claims 100 bytes.
+    const bomb = zipDeclaring(Buffer.alloc(60 * 1024 * 1024), 100);
+    expect(bomb.length).toBeLessThan(200_000);
+    const res = await upload(userId, "lie.xlsx", bomb);
+    expect(res.status).toBe(400);
+    const err = await errorOf(res);
+    expect(err.code).toBe("IMPORT_FILE_INVALID");
+    expect(err.message).toContain("too large once opened");
+    expect(await Guest.countDocuments()).toBe(0);
+  });
+
+  it("paging by cursor does not repeat or skip guests when the list changes meanwhile", async () => {
+    const { userId } = await setup();
+    const made: Record<string, string> = {};
+    for (const n of ["A", "B", "C", "D", "E", "F"])
+      made[n] = (await createOk(userId, { name: n })).id;
+    const first = await list(userId, "?limit=3");
+    expect(first.items.map((g) => g.name)).toEqual(["A", "B", "C"]);
+    // Someone adds a guest before the page boundary and deletes one that was already shown.
+    await createOk(userId, { name: "AA" });
+    await Guest.deleteOne({ _id: made.A });
+    const second = await list(userId, `?limit=3&cursor=${first.nextCursor}`);
+    expect(second.items.map((g) => g.name)).toEqual(["D", "E", "F"]);
+    expect(second.nextCursor).toBeUndefined();
+    // Same names are ordered by id, and the newest-first order pages the same way.
+    const newest1 = await list(userId, "?sort=-createdAt&limit=2");
+    const newest2 = await list(userId, `?sort=-createdAt&limit=2&cursor=${newest1.nextCursor}`);
+    expect([...newest1.items, ...newest2.items].map((g) => g.name)).toEqual(["AA", "F", "E", "D"]);
+    // A cursor from one sort order is refused in the other, and so is nonsense.
+    const wrong = await call(
+      listRoute,
+      await request(`/api/guests?cursor=${first.nextCursor}&sort=-createdAt`, { userId }),
+    );
+    expect(wrong.status).toBe(400);
+  });
+
+  it("adding guests while their event is deleted never leaves a dangling event id", async () => {
+    const { userId, weddingId } = await setup();
+    for (let round = 0; round < 8; round++) {
+      const ev = await addEvent(weddingId, `Race ${round}`);
+      const results = await Promise.all([
+        ...Array.from({ length: 3 }, (_, i) =>
+          postReq(userId, { name: `R${round}-${i}`, eventIds: [String(ev._id)] }),
+        ),
+        call(
+          deleteEventRoute,
+          await request(`/api/events/${ev._id}`, { method: "DELETE", userId }),
+          String(ev._id),
+        ),
+      ]);
+      for (const r of results.slice(0, 3)) expect([201, 400]).toContain(r.status);
+      expect(results[3]!.status).toBe(204);
+      // Whatever order they ran in, no guest points at the deleted event.
+      expect(await Guest.countDocuments({ eventIds: ev._id })).toBe(0);
+    }
+  }, 60_000);
+
+  it("an import is all or nothing, even when an event vanishes before it is saved", async () => {
+    const { weddingId } = await setup();
+    const ev = await addEvent(weddingId, "Gone");
+    await Event.deleteOne({ _id: ev._id });
+    await expect(
+      insertGuests(String(weddingId), [
+        { name: "One", eventIds: [] },
+        { name: "Two", eventIds: [ev._id] },
+      ]),
+    ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    expect(await Guest.countDocuments()).toBe(0);
+  });
+
+  it("the name sort is served by the collated index, with no in-memory sort", async () => {
+    const { userId, weddingId } = await setup();
+    await createOk(userId, { name: "Bala" });
+    await Guest.createIndexes();
+    const plan = await Guest.find({ weddingId })
+      .sort({ name: 1, _id: 1 })
+      .collation({ locale: "en", strength: 2 })
+      .limit(11)
+      .explain("queryPlanner");
+    // Only the plan MongoDB chose counts (rejected plans may well contain a SORT).
+    const winner = JSON.stringify(
+      (plan as unknown as { queryPlanner: { winningPlan: unknown } }).queryPlanner.winningPlan,
+    );
+    expect(winner).toContain("weddingId_1_name_1__id_1_en");
+    expect(winner).not.toContain('"stage":"SORT"');
   });
 });

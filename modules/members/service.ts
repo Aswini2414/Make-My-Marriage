@@ -1,7 +1,7 @@
 import "server-only";
 import bcrypt from "bcryptjs";
-import mongoose, { type ClientSession, type Types } from "mongoose";
-import { connectDb, isDuplicateKey } from "@/lib/db";
+import { type ClientSession, type Types } from "mongoose";
+import { connectDb, inTransaction, isDuplicateKey } from "@/lib/db";
 import { BCRYPT_COST } from "@/lib/passwords";
 import { ApiError } from "@/lib/errors";
 import { toObjectId } from "@/lib/ids";
@@ -307,10 +307,9 @@ export async function acceptInvite(input: AcceptInput, ip: string): Promise<Auth
     passwordHash = await bcrypt.hash(input.password, BCRYPT_COST);
   }
 
-  const session = await mongoose.startSession();
   let finalUserId: Types.ObjectId | undefined;
   try {
-    await session.withTransaction(async () => {
+    await inTransaction(async (session) => {
       const now = new Date();
       // Claim the link first, so two requests can't both use it.
       const claimed = await MemberInvite.findOneAndUpdate(
@@ -363,8 +362,6 @@ export async function acceptInvite(input: AcceptInput, ip: string): Promise<Auth
         : new ApiError("IN_OTHER_WORKSPACE");
     }
     throw err;
-  } finally {
-    await session.endSession();
   }
   return authResult(String(finalUserId));
 }
@@ -381,21 +378,10 @@ async function withMemberLock<T>(
   weddingId: Types.ObjectId,
   fn: (session: ClientSession) => Promise<T>,
 ): Promise<T> {
-  const session = await mongoose.startSession();
-  let result: T | undefined;
-  try {
-    await session.withTransaction(async () => {
-      await Wedding.updateOne(
-        { _id: weddingId },
-        { $currentDate: { updatedAt: true } },
-        { session },
-      );
-      result = await fn(session);
-    });
-    return result as T;
-  } finally {
-    await session.endSession();
-  }
+  return inTransaction(async (session) => {
+    await Wedding.updateOne({ _id: weddingId }, { $currentDate: { updatedAt: true } }, { session });
+    return fn(session);
+  });
 }
 
 async function activeAdmins(weddingId: Types.ObjectId, session: ClientSession) {

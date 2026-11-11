@@ -28,10 +28,15 @@ describe("setup checklist", () => {
   it("is hidden once every item that can be done yet is done", () => {
     expect(showChecklist(setupItems(none))).toBe(true);
     expect(showChecklist(setupItems({ ...none, events: true, tasks: true }))).toBe(true);
-    // Guests are not built yet, so they cannot keep the checklist open.
+    // Guests are built, so "Add your guests" keeps the checklist open until a guest exists.
     expect(
       showChecklist(setupItems({ events: true, tasks: true, guests: false, team: true })),
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      setupItems({ ...none, guests: true })
+        .filter((i) => i.done)
+        .map((i) => i.key),
+    ).toEqual(["guests"]);
     expect(showChecklist(setupItems({ events: true, tasks: true, guests: true, team: true }))).toBe(
       false,
     );

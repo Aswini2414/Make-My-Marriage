@@ -26,7 +26,14 @@ const guestSchema = new Schema(
   },
   { timestamps: true, collection: "guests" },
 );
-guestSchema.index({ weddingId: 1, name: 1 });
+// The list sorts by name ignoring case, so this index carries the same collation: otherwise
+// MongoDB cannot use it for that sort and sorts every page in memory. (An older plain
+// { weddingId, name } index may still exist in a database; it is unused and can be dropped.)
+guestSchema.index(
+  { weddingId: 1, name: 1, _id: 1 },
+  { name: "weddingId_1_name_1__id_1_en", collation: { locale: "en", strength: 2 } },
+);
+guestSchema.index({ weddingId: 1, createdAt: -1, _id: -1 });
 // Not unique: the same email twice is a warning the member can confirm, not an error.
 guestSchema.index(
   { weddingId: 1, email: 1 },

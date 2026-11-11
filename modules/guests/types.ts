@@ -17,6 +17,19 @@ export type GuestItem = {
   inviteOpenedAt?: string;
   /** How many of the guest's events have an answer. Always 0 replied until Phase 4. */
   rsvp: { replied: number; of: number };
+  /** Another guest in this wedding has the same email or phone. Set on list rows only. */
+  duplicate?: true;
+};
+
+/** The numbers above the Guests list. They always count the whole wedding, never the filters. */
+export type GuestSummary = {
+  total: number;
+  /** Different household names in use. */
+  households: number;
+  /** Guests invited to at least one event. */
+  invited: number;
+  /** Guests with no event yet. */
+  unassigned: number;
 };
 
 export type GuestList = { items: GuestItem[]; nextCursor?: string; total: number };

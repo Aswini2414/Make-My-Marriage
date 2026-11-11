@@ -1,6 +1,6 @@
 import "server-only";
-import mongoose, { type Types } from "mongoose";
-import { connectDb } from "@/lib/db";
+import { type ClientSession, type Types } from "mongoose";
+import { connectDb, inTransaction } from "@/lib/db";
 import { ApiError } from "@/lib/errors";
 import { toObjectId } from "@/lib/ids";
 import { encryptToken, generateToken, hashToken } from "@/lib/tokens";
@@ -14,6 +14,7 @@ import type {
   DuplicateWarning,
   GuestItem,
   GuestList,
+  GuestSummary,
   HouseholdItem,
   InviteStatus,
 } from "./types";
@@ -59,14 +60,24 @@ const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"
 /**
  * Every event id must be this wedding's. An unknown id and another wedding's id give the same
  * answer, so nothing leaks.
+ *
+ * With a `session` the events are also WRITTEN to (their updatedAt), not only read. Without that,
+ * a transaction that adds guests to an event and one that deletes the event never collide, and
+ * the guest could keep an id of an event that no longer exists. With it, one of the two retries
+ * and sees the other's result.
  */
 export async function assertEventsBelong(
   wid: Types.ObjectId,
   ids: string[],
+  session?: ClientSession,
 ): Promise<Types.ObjectId[]> {
-  const objectIds = ids.map((id) => toObjectId(id));
+  const objectIds = [...new Set(ids)].map((id) => toObjectId(id));
   if (objectIds.length === 0) return objectIds;
-  const found = await Event.countDocuments({ weddingId: wid, _id: { $in: objectIds } });
+  const filter = { weddingId: wid, _id: { $in: objectIds } };
+  const found = session
+    ? (await Event.updateMany(filter, { $currentDate: { updatedAt: true } }, { session }))
+        .matchedCount
+    : await Event.countDocuments(filter);
   if (found !== objectIds.length) {
     throw new ApiError("VALIDATION_FAILED", undefined, {
       fields: { eventIds: "Choose events from this wedding." },
@@ -108,19 +119,37 @@ export async function findDuplicates(
 
 // ---- list ----
 
-function encodeCursor(offset: number) {
-  return Buffer.from(String(offset)).toString("base64url");
+type SortKey = ListGuestsQuery["sort"];
+
+// The cursor remembers the last guest of the page (sort order, sort value, id) instead of a page
+// number, so a guest added or deleted while someone scrolls cannot repeat or skip a row.
+function encodeCursor(sort: SortKey, last: GuestDoc) {
+  const value = sort === "name" ? last.name : (last.createdAt as Date).getTime();
+  return Buffer.from(JSON.stringify([sort, value, String(last._id)])).toString("base64url");
 }
 
-function decodeCursor(cursor: string | undefined): number {
-  if (!cursor) return 0;
-  const text = Buffer.from(cursor, "base64url").toString();
-  if (!/^\d{1,7}$/.test(text)) {
-    throw new ApiError("VALIDATION_FAILED", undefined, {
-      fields: { cursor: "That page isn't valid." },
-    });
+const badCursor = () =>
+  new ApiError("VALIDATION_FAILED", undefined, { fields: { cursor: "That page isn't valid." } });
+
+/** The condition for "everything after the cursor" in the given sort order. */
+function afterCursor(cursor: string, sort: SortKey): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(cursor, "base64url").toString());
+  } catch {
+    throw badCursor();
   }
-  return Number(text);
+  if (!Array.isArray(parsed) || parsed.length !== 3 || parsed[0] !== sort) throw badCursor();
+  const [, value, id] = parsed as [string, unknown, unknown];
+  if (typeof id !== "string" || !/^[0-9a-f]{24}$/i.test(id)) throw badCursor();
+  const last = toObjectId(id);
+  if (sort === "name") {
+    if (typeof value !== "string") throw badCursor();
+    return { $or: [{ name: { $gt: value } }, { name: value, _id: { $gt: last } }] };
+  }
+  if (typeof value !== "number" || !Number.isFinite(value)) throw badCursor();
+  const at = new Date(value);
+  return { $or: [{ createdAt: { $lt: at } }, { createdAt: at, _id: { $lt: last } }] };
 }
 
 /**
@@ -131,7 +160,15 @@ function rsvpMatchesNobody(status: ListGuestsQuery["rsvpStatus"]) {
   return status === "attending" || status === "declined";
 }
 
-export async function listGuests(weddingId: string, query: ListGuestsQuery): Promise<GuestList> {
+/**
+ * One page of guests. With `light` the total and the duplicate tags are left out (total 0): for
+ * walking through pages that are only passed over on the way to a later one.
+ */
+export async function listGuests(
+  weddingId: string,
+  query: ListGuestsQuery,
+  { light = false }: { light?: boolean } = {},
+): Promise<GuestList> {
   await connectDb();
   const wid = toObjectId(weddingId);
 
@@ -140,7 +177,6 @@ export async function listGuests(weddingId: string, query: ListGuestsQuery): Pro
       fields: { rsvpStatus: "Choose an event to filter by reply." },
     });
   }
-  const offset = decodeCursor(query.cursor);
   if (rsvpMatchesNobody(query.rsvpStatus)) return { items: [], total: 0 };
 
   const filter: Record<string, unknown> = { weddingId: wid };
@@ -174,21 +210,57 @@ export async function listGuests(weddingId: string, query: ListGuestsQuery): Pro
 
   const sort: Record<string, 1 | -1> =
     query.sort === "-createdAt" ? { createdAt: -1, _id: -1 } : { name: 1, _id: 1 };
+  // The name order ignores case (collation) and is backed by an index with the same collation.
+  const pageFilter = query.cursor
+    ? { ...filter, $and: [afterCursor(query.cursor, query.sort)] }
+    : filter;
   const [total, found] = await Promise.all([
-    Guest.countDocuments(filter),
-    Guest.find(filter)
+    light ? Promise.resolve(0) : Guest.countDocuments(filter),
+    Guest.find(pageFilter)
       .sort(sort)
       .collation({ locale: "en", strength: 2 })
-      .skip(offset)
       .limit(query.limit + 1)
       .lean(),
   ]);
   const page = found.slice(0, query.limit);
+  const last = page[page.length - 1];
+  const repeated = light
+    ? { emails: new Set<string>(), phones: new Set<string>() }
+    : await repeatedContacts(wid, page);
   return {
-    items: page.map(toGuestItem),
-    ...(found.length > query.limit ? { nextCursor: encodeCursor(offset + query.limit) } : {}),
+    items: page.map((g) => {
+      const item = toGuestItem(g);
+      const dupe =
+        (g.email && repeated.emails.has(g.email)) || (g.phone && repeated.phones.has(g.phone));
+      return dupe ? { ...item, duplicate: true as const } : item;
+    }),
+    ...(found.length > query.limit && last
+      ? { nextCursor: encodeCursor(query.sort, last as GuestDoc) }
+      : {}),
     total,
   };
+}
+
+/**
+ * Which of these guests' emails and phones belong to more than one guest in the wedding, for the
+ * "Possible duplicate" tag. One query for the page, not one per row.
+ */
+async function repeatedContacts(wid: Types.ObjectId, page: GuestDoc[]) {
+  const emails = [...new Set(page.map((g) => g.email).filter((e): e is string => !!e))];
+  const phones = [...new Set(page.map((g) => g.phone).filter((p): p is string => !!p))];
+  const result = { emails: new Set<string>(), phones: new Set<string>() };
+  const or: Record<string, unknown>[] = [];
+  if (emails.length > 0) or.push({ email: { $in: emails } });
+  if (phones.length > 0) or.push({ phone: { $in: phones } });
+  if (or.length === 0) return result;
+  const same = await Guest.find({ weddingId: wid, $or: or }).select("email phone").lean();
+  const seenEmail = new Set<string>();
+  const seenPhone = new Set<string>();
+  for (const g of same) {
+    if (g.email) (seenEmail.has(g.email) ? result.emails : seenEmail).add(g.email);
+    if (g.phone) (seenPhone.has(g.phone) ? result.phones : seenPhone).add(g.phone);
+  }
+  return result;
 }
 
 // ---- one guest ----
@@ -221,21 +293,32 @@ export type SaveResult = { guest: GuestItem } | DuplicateWarning;
 export async function createGuest(weddingId: string, input: CreateGuestInput): Promise<SaveResult> {
   await connectDb();
   const wid = toObjectId(weddingId);
-  const eventIds = await assertEventsBelong(wid, input.eventIds ?? []);
+  // Early, so a bad event answers before a duplicate warning does.
+  await assertEventsBelong(wid, input.eventIds ?? []);
 
   if (!input.confirmDuplicates) {
     const duplicates = await findDuplicates(wid, input);
     if (duplicates.length > 0) return { saved: false, duplicates };
   }
-  const created = await Guest.create({
-    name: input.name,
-    ...(input.email ? { email: input.email } : {}),
-    ...(input.phone ? { phone: input.phone } : {}),
-    ...(input.relation ? { relation: input.relation } : {}),
-    ...(input.household ? { household: input.household } : {}),
-    eventIds,
-    weddingId: wid,
-    ...newInviteToken(),
+  const created = await inTransaction(async (session) => {
+    // Checked again inside the transaction, where it also guards against a concurrent event delete.
+    const inside = await assertEventsBelong(wid, input.eventIds ?? [], session);
+    const [doc] = await Guest.create(
+      [
+        {
+          name: input.name,
+          ...(input.email ? { email: input.email } : {}),
+          ...(input.phone ? { phone: input.phone } : {}),
+          ...(input.relation ? { relation: input.relation } : {}),
+          ...(input.household ? { household: input.household } : {}),
+          eventIds: inside,
+          weddingId: wid,
+          ...newInviteToken(),
+        },
+      ],
+      { session },
+    );
+    return doc!;
   });
   return { guest: toGuestItem(created.toObject()) };
 }
@@ -249,7 +332,7 @@ export async function updateGuest(
   const wid = toObjectId(weddingId);
   // A missing guest answers 404 before anything else is checked.
   const existing = await findGuest(wid, id);
-  const eventIds = input.eventIds ? await assertEventsBelong(wid, input.eventIds) : undefined;
+  if (input.eventIds) await assertEventsBelong(wid, input.eventIds);
 
   // Only a contact detail that is being changed can be a new duplicate, so editing someone
   // whose email already matches another guest does not ask again.
@@ -274,27 +357,23 @@ export async function updateGuest(
     else if (value !== undefined) set[key] = value;
   }
   // Phase 4: for events taken out of eventIds, delete the guest's rsvps for them.
-  if (eventIds) set.eventIds = eventIds;
-  const changes = {
-    ...(Object.keys(set).length ? { $set: set } : {}),
-    ...(Object.keys(unset).length ? { $unset: unset } : {}),
+  const saveChanges = async (session?: ClientSession) => {
+    if (input.eventIds) set.eventIds = await assertEventsBelong(wid, input.eventIds, session);
+    const changes = {
+      ...(Object.keys(set).length ? { $set: set } : {}),
+      ...(Object.keys(unset).length ? { $unset: unset } : {}),
+    };
+    return Guest.findOneAndUpdate({ _id: existing._id, weddingId: wid }, changes, {
+      returnDocument: "after",
+      runValidators: true,
+      ...(session ? { session } : {}),
+    }).lean();
   };
-  const guest = await Guest.findOneAndUpdate({ _id: existing._id, weddingId: wid }, changes, {
-    returnDocument: "after",
-    runValidators: true,
-  }).lean();
+  // With events in the change, the write is in a transaction that guards against a concurrent
+  // event delete (see assertEventsBelong).
+  const guest = input.eventIds ? await inTransaction(saveChanges) : await saveChanges();
   if (!guest) throw new ApiError("NOT_FOUND");
   return { guest: toGuestItem(guest) };
-}
-
-/** Runs `fn` in a transaction. */
-async function inTransaction<T>(fn: (session: mongoose.ClientSession) => Promise<T>): Promise<T> {
-  const session = await mongoose.startSession();
-  try {
-    return await session.withTransaction(fn);
-  } finally {
-    await session.endSession();
-  }
 }
 
 /** Every id must be this wedding's guest, or the whole call answers 404 and changes nothing. */
@@ -339,6 +418,7 @@ export async function assignEvents(
     // An event in both lists ends up added, because it is removed first.
     await unlinkEvents(wid, remove, session, guestIds);
     if (add.length > 0) {
+      await assertEventsBelong(wid, input.add ?? [], session);
       await Guest.updateMany(
         { weddingId: wid, _id: { $in: guestIds } },
         { $addToSet: { eventIds: { $each: add } } },
@@ -366,6 +446,36 @@ export async function listHouseholds(weddingId: string): Promise<HouseholdItem[]
     );
 }
 
+/** The four numbers above the Guests list, for the whole wedding. */
+export async function guestSummary(weddingId: string): Promise<GuestSummary> {
+  await connectDb();
+  const wid = toObjectId(weddingId);
+  const [counts, households] = await Promise.all([
+    Guest.aggregate<{ total: number; invited: number }>([
+      { $match: { weddingId: wid } },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          // $ifNull: a guest written without the array (by a script) counts as not invited.
+          invited: {
+            $sum: { $cond: [{ $gt: [{ $size: { $ifNull: ["$eventIds", []] } }, 0] }, 1, 0] },
+          },
+        },
+      },
+    ]),
+    // The same rule as listHouseholds: the text as typed, empty ones left out.
+    Guest.aggregate<{ n: number }>([
+      { $match: { weddingId: wid, household: { $exists: true, $ne: "" } } },
+      { $group: { _id: "$household" } },
+      { $count: "n" },
+    ]),
+  ]);
+  const total = counts[0]?.total ?? 0;
+  const invited = counts[0]?.invited ?? 0;
+  return { total, households: households[0]?.n ?? 0, invited, unassigned: total - invited };
+}
+
 /** True once the wedding has at least one guest (the dashboard's setup checklist). */
 export async function hasGuests(weddingId: string): Promise<boolean> {
   await connectDb();
@@ -390,6 +500,12 @@ export async function insertGuests(
     weddingId: wid,
     ...newInviteToken(),
   }));
-  const inserted = await Guest.insertMany(docs);
-  return inserted.length;
+  // All or nothing: a failure part-way must not leave some rows saved, or a retry would add
+  // those guests twice. The events are checked again inside, against a concurrent event delete.
+  const eventIds = [...new Set(rows.flatMap((r) => r.eventIds.map(String)))];
+  return inTransaction(async (session) => {
+    await assertEventsBelong(wid, eventIds, session);
+    const inserted = await Guest.insertMany(docs, { session });
+    return inserted.length;
+  });
 }

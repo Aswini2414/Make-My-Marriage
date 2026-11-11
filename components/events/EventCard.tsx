@@ -1,14 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import {
-  CheckroomIcon,
-  DeleteIcon,
-  GroupIcon,
-  LocationOnIcon,
-  MoreVertIcon,
-  ScheduleIcon,
-} from "@/components/icons";
+import { CheckroomIcon, GroupIcon, LocationOnIcon, ScheduleIcon } from "@/components/icons";
+import { RowMenu } from "@/components/ui/RowMenu";
 import { dateTileParts, formatTime12 } from "@/lib/dates";
 import { type EventItem, typeChipLabel } from "@/modules/events/format";
 
@@ -17,96 +10,6 @@ type Props = {
   onEdit: () => void;
   onDelete: () => void;
 };
-
-const itemClass =
-  "flex min-h-11 w-full items-center gap-2 px-4 py-2 text-left text-sm transition-colors hover:bg-lilac focus-visible:bg-lilac focus-visible:outline-none";
-
-/** The three-dot menu: Edit and Delete. */
-function EventMenu({
-  name,
-  onEdit,
-  onDelete,
-}: {
-  name: string;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    root.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
-    const onPointer = (e: PointerEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setOpen(false);
-        trigger.current?.focus();
-      } else if (e.key === "Tab") setOpen(false);
-      else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        const items = [...(root.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
-        const at = items.indexOf(document.activeElement as HTMLElement);
-        items[(at + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
-      }
-    };
-    document.addEventListener("pointerdown", onPointer);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onPointer);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  return (
-    <div ref={root} className="relative">
-      <button
-        ref={trigger}
-        type="button"
-        aria-label={`More actions for ${name}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        className="flex size-11 items-center justify-center rounded-full text-ink-secondary transition-colors hover:text-plum lg:size-9"
-      >
-        <MoreVertIcon className="text-lg" />
-      </button>
-      {open && (
-        <div
-          role="menu"
-          className="absolute right-0 z-20 mt-1 w-40 overflow-hidden rounded-input border border-border bg-surface py-1 shadow-md"
-        >
-          <button
-            type="button"
-            role="menuitem"
-            className={`${itemClass} text-ink`}
-            onClick={() => {
-              setOpen(false);
-              onEdit();
-            }}
-          >
-            Edit
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className={`${itemClass} text-error`}
-            onClick={() => {
-              setOpen(false);
-              onDelete();
-            }}
-          >
-            <DeleteIcon className="text-base" />
-            Delete
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 export function EventCard({ event, onEdit, onDelete }: Props) {
   const tile = dateTileParts(event.date);
@@ -184,7 +87,7 @@ export function EventCard({ event, onEdit, onDelete }: Props) {
           >
             Edit
           </button>
-          <EventMenu name={event.name} onEdit={onEdit} onDelete={onDelete} />
+          <RowMenu name={event.name} onEdit={onEdit} onDelete={onDelete} />
         </div>
       </div>
     </article>

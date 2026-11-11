@@ -77,7 +77,7 @@ export function StatCards({ data }: { data: Dashboard }) {
       </div>
 
       {/* TODO(Phase 3, 4): show the counts here once `data.rsvp` is not null. */}
-      <NotStartedCard label="RSVP" note="Add your guests to see replies here" href="/guests" />
+      <NotStartedCard label="RSVP" note="Send invitations to see replies here" href="/guests" />
 
       {/* TODO(Phase 5): show the total here once `data.money` is not null. */}
       <NotStartedCard

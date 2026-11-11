@@ -1,6 +1,6 @@
 import "server-only";
-import mongoose, { type Types } from "mongoose";
-import { connectDb } from "@/lib/db";
+import { type Types } from "mongoose";
+import { connectDb, inTransaction } from "@/lib/db";
 import { ApiError } from "@/lib/errors";
 import { toObjectId } from "@/lib/ids";
 import { Wedding } from "@/modules/weddings/model";
@@ -164,18 +164,13 @@ export async function deleteEvent(weddingId: string, id: string): Promise<void> 
   await connectDb();
   const wid = toObjectId(weddingId);
   const eventId = toObjectId(id);
-  const session = await mongoose.startSession();
-  try {
-    await session.withTransaction(async () => {
-      const deleted = await Event.findOneAndDelete({ _id: eventId, weddingId: wid }, { session });
-      if (!deleted) throw new ApiError("NOT_FOUND");
-      for (const key of IMPACT_KEYS) {
-        await eventDependents[key].cleanup({ weddingId: wid, eventId }, session);
-      }
-    });
-  } finally {
-    await session.endSession();
-  }
+  await inTransaction(async (session) => {
+    const deleted = await Event.findOneAndDelete({ _id: eventId, weddingId: wid }, { session });
+    if (!deleted) throw new ApiError("NOT_FOUND");
+    for (const key of IMPACT_KEYS) {
+      await eventDependents[key].cleanup({ weddingId: wid, eventId }, session);
+    }
+  });
 }
 
 export type EventTypes = { default: string[]; custom: string[] };

@@ -1,0 +1,8 @@
+name,email,phone,relation,household,events
+Meena Reddy,meena.reddy@example.com,+91 98490 12345,Cousin,Reddy family,Haldi; Muhurtham
+Suresh Naidu,suresh.naidu@example.com,98850 23456,Uncle,Naidu family,Muhurtham; Reception
+Lakshmi Devi,lakshmi.devi@example.com,98850-23457,Aunt,Naidu family,Haldi
+,anonymous@example.com,+91 98850 99999,,,Reception
+Kiran Rao,kiran.rao@domain,+91 94400 11112,Friend,Rao family,Haldi
+Deepa Chowdary,deepa.c@example.com,+91 98480 33333,Friend,Chowdary family,Sangeet Night
+Meena R,meena.reddy@example.com,,Cousin,Reddy family,Haldi

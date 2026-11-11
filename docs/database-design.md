@@ -424,7 +424,8 @@ Every index below is declared in its Mongoose schema and created when the app st
 | `passwordResets` | `{ expiresAt: 1 }` | TTL, `expireAfterSeconds: 0` | Deleting expired resets |
 | `weddings` | `{ slug: 1 }` | unique | Opening the wedding website |
 | `events` | `{ weddingId: 1, date: 1, time: 1 }` |  | Events in order; upcoming events on the dashboard |
-| `guests` | `{ weddingId: 1, name: 1 }` |  | Guest list sorted by name |
+| `guests` | `{ weddingId: 1, name: 1, _id: 1 }` (name `weddingId_1_name_1__id_1_en`, collation `en` strength 2) |  | Guest list sorted by name, ignoring case. The collation must match the list query's, or MongoDB sorts in memory. A plain `{ weddingId, name }` index from before can be dropped |
+| `guests` | `{ weddingId: 1, createdAt: -1, _id: -1 }` |  | Guest list, newest first |
 | `guests` | `{ weddingId: 1, email: 1 }` | partial where `email` exists | Finding a guest with the same email (the duplicate warning) |
 | `guests` | `{ weddingId: 1, eventIds: 1 }` |  | Guests invited to an event |
 | `guests` | `{ inviteTokenHash: 1 }` | unique | Opening a guest's invitation link |

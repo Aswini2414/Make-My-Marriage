@@ -1,4 +1,5 @@
 import "server-only";
+import { inflateRawSync } from "node:zlib";
 import ExcelJS from "exceljs";
 import Papa from "papaparse";
 import { ApiError } from "@/lib/errors";
@@ -58,8 +59,12 @@ export function detectKind(name: string, bytes: Uint8Array): Kind {
 }
 
 /**
- * An .xlsx is a zip. Reads the zip's directory and refuses a file that would unpack to far more
- * than it weighs (a "zip bomb") before the spreadsheet library ever opens it.
+ * An .xlsx is a zip. Refuses a file that would unpack to far more than it weighs (a "zip bomb")
+ * before the spreadsheet library ever opens it.
+ *
+ * The sizes a zip DECLARES are written by whoever made the file, so they are only a first filter.
+ * The real check unpacks every entry here, with a hard output cap shared by all entries, so a
+ * file that lies about its sizes is stopped after at most MAX_UNPACKED_BYTES of work.
  */
 export function assertSafeZip(bytes: Uint8Array) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -77,18 +82,46 @@ export function assertSafeZip(bytes: Uint8Array) {
   // 0xFFFF / 0xFFFFFFFF mean zip64, which a small guest list never needs.
   if (entries === 0xffff || offset === 0xffffffff || entries > MAX_ZIP_ENTRIES) throw invalid();
 
-  let unpacked = 0;
+  const tooBig = () => invalid("That file is too large once opened.");
+  let declared = 0;
+  let budget = MAX_UNPACKED_BYTES; // what may still be unpacked, counted from the real data
   for (let n = 0; n < entries; n++) {
     if (offset + 46 > bytes.byteLength || view.getUint32(offset, true) !== 0x02014b50) {
       throw invalid();
     }
-    unpacked += view.getUint32(offset + 24, true);
-    if (unpacked > MAX_UNPACKED_BYTES) throw invalid("That file is too large once opened.");
+    const method = view.getUint16(offset + 10, true);
+    const compressedSize = view.getUint32(offset + 20, true);
+    declared += view.getUint32(offset + 24, true);
+    if (declared > MAX_UNPACKED_BYTES) throw tooBig();
+    const local = view.getUint32(offset + 42, true);
     offset +=
       46 +
       view.getUint16(offset + 28, true) +
       view.getUint16(offset + 30, true) +
       view.getUint16(offset + 32, true);
+
+    // The entry's data, found through its local header, then really unpacked under the cap.
+    if (local + 30 > bytes.byteLength || view.getUint32(local, true) !== 0x04034b50)
+      throw invalid();
+    const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+    const end = start + compressedSize;
+    if (end > bytes.byteLength) throw invalid();
+    const data = bytes.subarray(start, end);
+    if (data.byteLength === 0) {
+      continue; // an empty placeholder entry (some writers emit these): nothing to unpack
+    } else if (method === 0) {
+      budget -= data.byteLength; // stored: it is what it weighs
+    } else if (method === 8) {
+      try {
+        budget -= inflateRawSync(data, { maxOutputLength: Math.max(budget, 1) }).byteLength;
+      } catch (err) {
+        if ((err as { code?: string }).code === "ERR_BUFFER_TOO_LARGE") throw tooBig();
+        throw invalid();
+      }
+    } else {
+      throw invalid();
+    }
+    if (budget < 0) throw tooBig();
   }
 }
 

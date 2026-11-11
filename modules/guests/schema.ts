@@ -103,7 +103,7 @@ export const listGuestsQuery = z.object({
   household: z.preprocess(emptyToUndefined, z.string().trim().max(80).optional()),
   sort: z.preprocess(emptyToUndefined, z.enum(["name", "-createdAt"]).default("name")),
   limit: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1).max(100).default(50)),
-  cursor: z.preprocess(emptyToUndefined, z.string().max(40).optional()),
+  cursor: z.preprocess(emptyToUndefined, z.string().max(600).optional()),
 });
 
 const guestIds = z

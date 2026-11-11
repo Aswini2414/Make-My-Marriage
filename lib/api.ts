@@ -100,7 +100,7 @@ export async function parseUpload(
   );
   let form: FormData;
   try {
-    form = await new Response(Buffer.from(body), { headers: { "content-type": type } }).formData();
+    form = await new Response(body as BodyInit, { headers: { "content-type": type } }).formData();
   } catch {
     throw new ApiError("VALIDATION_FAILED", "The upload could not be read.", {
       fields: { [field]: "Choose a file to upload." },

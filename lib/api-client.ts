@@ -31,8 +31,12 @@ async function sendJson<T>(method: string, path: string, body?: unknown): Promis
   try {
     const res = await fetch(path, {
       method,
-      headers: body === undefined ? undefined : { "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      // A FormData body (a file upload) sets its own content type, with the multipart boundary.
+      headers:
+        body === undefined || body instanceof FormData
+          ? undefined
+          : { "content-type": "application/json" },
+      body: body === undefined || body instanceof FormData ? body : JSON.stringify(body),
     });
     if (res.ok) return { ok: true, data: (res.status === 204 ? null : await res.json()) as T };
     const retryAfter = Number(res.headers.get("retry-after")) || undefined;
@@ -61,6 +65,9 @@ async function sendJson<T>(method: string, path: string, body?: unknown): Promis
 export const getJson = <T = unknown>(path: string) => sendJson<T>("GET", path);
 export const postJson = <T = unknown>(path: string, body: unknown = {}) =>
   sendJson<T>("POST", path, body);
+/** Sends a file as multipart form data. */
+export const postForm = <T = unknown>(path: string, form: FormData) =>
+  sendJson<T>("POST", path, form);
 export const patchJson = <T = unknown>(path: string, body: unknown) =>
   sendJson<T>("PATCH", path, body);
 export const deleteJson = <T = unknown>(path: string, body?: unknown) =>

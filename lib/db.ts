@@ -1,5 +1,5 @@
 import "server-only";
-import mongoose from "mongoose";
+import mongoose, { type ClientSession } from "mongoose";
 import { mongoUri } from "@/lib/env";
 
 // One Mongoose connection per server instance, kept on globalThis so Next.js dev reloads
@@ -36,4 +36,22 @@ export async function connectDb(): Promise<typeof mongoose> {
     throw err;
   }
   return cache.conn;
+}
+
+/**
+ * Runs `fn` in a transaction and returns what it returns. The one place a session is started and
+ * ended. `fn` may run more than once (MongoDB retries a transaction that hit a write conflict),
+ * so it must not do anything outside the database that cannot be repeated.
+ */
+export async function inTransaction<T>(fn: (session: ClientSession) => Promise<T>): Promise<T> {
+  const session = await mongoose.startSession();
+  try {
+    let result: T | undefined;
+    await session.withTransaction(async () => {
+      result = await fn(session);
+    });
+    return result as T;
+  } finally {
+    await session.endSession();
+  }
 }

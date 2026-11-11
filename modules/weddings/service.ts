@@ -1,6 +1,5 @@
 import "server-only";
-import mongoose from "mongoose";
-import { connectDb, isDuplicateKey } from "@/lib/db";
+import { connectDb, inTransaction, isDuplicateKey } from "@/lib/db";
 import { ApiError } from "@/lib/errors";
 import { toObjectId } from "@/lib/ids";
 import { encryptToken, generateToken, hashToken } from "@/lib/tokens";
@@ -68,10 +67,8 @@ export async function createWedding(
     const slug = slugCandidate(base, attempt);
     if (await Wedding.exists({ slug })) continue;
 
-    const session = await mongoose.startSession();
     try {
-      let created: WeddingView | undefined;
-      await session.withTransaction(async () => {
+      return await inTransaction(async (session) => {
         const [wedding] = await Wedding.create([{ ...input, slug, createdBy: creator }], {
           session,
         });
@@ -92,9 +89,8 @@ export async function createWedding(
           ],
           { session },
         );
-        created = toWeddingView(wedding);
+        return toWeddingView(wedding);
       });
-      return created!;
     } catch (err) {
       if (!isDuplicateKey(err)) throw err;
       // Either the address was just taken (try the next one) or the user joined a wedding
@@ -102,8 +98,6 @@ export async function createWedding(
       if (await Membership.exists({ userId: creator, status: "active" })) {
         throw new ApiError("ALREADY_IN_WORKSPACE", ALREADY_IN);
       }
-    } finally {
-      await session.endSession();
     }
   }
   throw new ApiError("SLUG_TAKEN", "Couldn't find a free website address. Try again.");
@@ -201,29 +195,24 @@ export async function checkSlug(weddingId: string, slug: string): Promise<SlugCh
 export async function deleteWedding(weddingId: string, confirmSlug: string): Promise<void> {
   await connectDb();
   const wid = toObjectId(weddingId);
-  const session = await mongoose.startSession();
-  try {
-    await session.withTransaction(async () => {
-      const wedding = await Wedding.findById(wid).select("slug").session(session).lean();
-      if (!wedding) throw new ApiError("NOT_FOUND");
-      if (wedding.slug !== confirmSlug) {
-        throw new ApiError("VALIDATION_FAILED", undefined, {
-          fields: { confirmSlug: "That doesn't match your website address." },
-        });
-      }
-      await QrCode.deleteMany({ weddingId: wid }, { session });
-      await Event.deleteMany({ weddingId: wid }, { session });
-      await Guest.deleteMany({ weddingId: wid }, { session });
-      await Task.deleteMany({ weddingId: wid }, { session });
-      await MemberInvite.deleteMany({ weddingId: wid }, { session });
-      await Membership.updateMany(
-        { weddingId: wid, status: "active" },
-        { status: "removed", removedAt: new Date() },
-        { session },
-      );
-      await Wedding.deleteOne({ _id: wid }, { session });
-    });
-  } finally {
-    await session.endSession();
-  }
+  await inTransaction(async (session) => {
+    const wedding = await Wedding.findById(wid).select("slug").session(session).lean();
+    if (!wedding) throw new ApiError("NOT_FOUND");
+    if (wedding.slug !== confirmSlug) {
+      throw new ApiError("VALIDATION_FAILED", undefined, {
+        fields: { confirmSlug: "That doesn't match your website address." },
+      });
+    }
+    await QrCode.deleteMany({ weddingId: wid }, { session });
+    await Event.deleteMany({ weddingId: wid }, { session });
+    await Guest.deleteMany({ weddingId: wid }, { session });
+    await Task.deleteMany({ weddingId: wid }, { session });
+    await MemberInvite.deleteMany({ weddingId: wid }, { session });
+    await Membership.updateMany(
+      { weddingId: wid, status: "active" },
+      { status: "removed", removedAt: new Date() },
+      { session },
+    );
+    await Wedding.deleteOne({ _id: wid }, { session });
+  });
 }

@@ -415,6 +415,7 @@ All guest endpoints need **Member** access.
 | POST | `/api/guests/bulk-events` | Add or remove events for many guests at once |
 | POST | `/api/guests/bulk-delete` | Delete many guests at once |
 | GET | `/api/guests/households` | The household names in use, for the filter dropdown |
+| GET | `/api/guests/summary` | The four numbers above the Guests list |
 | POST | `/api/guests/:id/regenerate-link` | Replace a guest's invitation link (Phase 4) |
 | GET | `/api/guests/:id/link` | The guest's current invitation link, to copy and share by hand (Phase 4) |
 | GET | `/api/guests/import/template` | Download the CSV or Excel template |
@@ -441,6 +442,7 @@ All guest endpoints need **Member** access.
 
 - `inviteStatus` is worked out on read: `not_sent`, `sent` or `opened`.
 - `rsvp` counts how many of the guest's events have an answer.
+- In `GET /api/guests` only, a row may also have `"duplicate": true`: another guest in this wedding has the same email or phone (the Guests page shows "Possible duplicate").
 - The token itself is never in this object. It's only returned by `GET /api/guests/:id/link`.
 
 ### GET /api/guests
@@ -453,7 +455,7 @@ All guest endpoints need **Member** access.
 | `inviteStatus` | `not_sent`, `sent` or `opened` |
 | `household` | Exact household name |
 | `sort` | `name` (default) or `-createdAt` |
-| `limit`, `cursor` | Pagination. The cursor is opaque (the page position) |
+| `limit`, `cursor` | Pagination. The cursor is opaque: it remembers the last guest of the page and the sort order, so guests added or deleted meanwhile cannot repeat or skip a row. A cursor is only valid with the `sort` it came from (else 400 on `cursor`) |
 
 Returns `{ "items": [ … ], "nextCursor": "…", "total": 412 }`. `total` is the count matching the filters, for showing "412 guests".
 
@@ -501,6 +503,10 @@ Up to 500 guests per call, with the same all-or-404 rule. Deletes the guests and
 ### GET /api/guests/households
 
 Returns `{ "items": [ { "name": "Rao family, Vizag", "count": 6 } ] }`, sorted by name. A household is just the text typed on the guest; there is no separate record.
+
+### GET /api/guests/summary
+
+Returns `{ "total": 412, "households": 118, "invited": 396, "unassigned": 16 }` for the whole wedding, never the filters: guests, different household names in use, guests invited to at least one event, and guests with no event yet.
 
 ### POST /api/guests/:id/regenerate-link
 
