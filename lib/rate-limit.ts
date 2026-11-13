@@ -91,7 +91,15 @@ export async function reserve(
   });
   if (used > limit) {
     await release();
-    throw new ApiError(code, undefined, { retryAfterSeconds: 3600 });
+    // Reopens when the oldest of the `limit` newest hits leaves the window (as assertUnderLimit).
+    const hits = await RateLimit.find({ key, createdAt: { $gte: new Date(Date.now() - windowMs) } })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .select("createdAt")
+      .lean();
+    const oldest = hits.length ? (hits[hits.length - 1]!.createdAt as Date).getTime() : Date.now();
+    const wait = Math.max(1, Math.ceil((oldest + windowMs - Date.now()) / 1000));
+    throw new ApiError(code, undefined, { retryAfterSeconds: wait });
   }
   return release;
 }

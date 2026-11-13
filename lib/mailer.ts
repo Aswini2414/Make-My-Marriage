@@ -7,7 +7,7 @@ import { DAY, reserve } from "@/lib/rate-limit";
 // Known v1 limitation: one Gmail account is shared by every wedding, with a daily cap of
 // EMAIL_DAILY_CAP (450). The cap is counted in the rateLimits collection under "gmail:daily".
 
-const DAILY_KEY = "gmail:daily";
+export const DAILY_KEY = "gmail:daily";
 
 let transport: Transporter | undefined;
 
@@ -17,6 +17,11 @@ function mailer() {
   transport = nodemailer.createTransport({
     service: "gmail",
     auth: { user: env.GMAIL_USER, pass: env.GMAIL_APP_PASSWORD },
+    // A stuck connection must give up in well under the minute a send batch holds its claim
+    // (modules/invitations/service.ts), or a second batch could start on the same guest.
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
   });
   return transport;
 }

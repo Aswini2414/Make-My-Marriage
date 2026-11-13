@@ -84,7 +84,7 @@ function EventPopover({
         <div
           role="dialog"
           aria-label={label}
-          className="absolute inset-x-0 top-full z-30 mt-2 rounded-input sm:inset-x-auto sm:right-0 sm:w-64 border border-border bg-surface p-3 text-ink shadow-md"
+          className="absolute inset-x-0 top-full z-30 mt-2 rounded-input border border-border bg-surface p-3 text-ink shadow-md sm:inset-x-auto sm:right-0 sm:w-64"
         >
           <p className="px-2 pt-1 pb-2 text-[11px] font-semibold tracking-wider text-ink-secondary uppercase">
             {mode === "add" ? `Assign ${guests} to:` : `Remove ${guests} from:`}

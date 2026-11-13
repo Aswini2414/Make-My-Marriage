@@ -14,6 +14,8 @@ type Props =
       name: string;
       /** The names of the events the guest is invited to. */
       eventNames: string[];
+      /** How many events the guest has answered. */
+      rsvps: number;
       onClose: () => void;
       onDeleted: () => void;
     }
@@ -68,7 +70,7 @@ export function DeleteGuestModal(props: Props) {
           <p className="mt-1 text-sm leading-relaxed text-ink-body">
             {props.kind === "one"
               ? `This removes ${props.name} from the guest list and from every event they are invited to.`
-              : `This removes ${count === 1 ? "this guest" : `these ${count} guests`} from the guest list and from every event they are invited to.`}
+              : `This removes ${count === 1 ? "this guest" : `these ${count} guests`} from the guest list and from every event they are invited to. Any RSVPs they have given are deleted too.`}
           </p>
         </div>
       </div>
@@ -76,7 +78,7 @@ export function DeleteGuestModal(props: Props) {
       {props.kind === "one" && (
         <p className="mt-5 flex items-start gap-3 rounded-input border border-border bg-ivory p-4 text-xs leading-relaxed text-ink">
           <EventIcon className="mt-0.5 shrink-0 text-base text-ink-secondary" />
-          <span>{deleteImpactLine(props.eventNames)}</span>
+          <span>{deleteImpactLine(props.eventNames, props.rsvps)}</span>
         </p>
       )}
       {error && <FormBanner className="mt-4">{error}</FormBanner>}

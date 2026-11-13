@@ -1,19 +1,36 @@
-import { Cormorant_Garamond, Plus_Jakarta_Sans } from "next/font/google";
+import localFont from "next/font/local";
 
 // The landing page follows its Stitch design, which uses these two fonts.
 // Every other page keeps Instrument Serif and Inter from the root layout.
 
-const cormorant = Cormorant_Garamond({
+// Local files, like the root layout's fonts: see assets/fonts. Each is a variable font.
+const cormorant = localFont({
   variable: "--font-cormorant",
-  weight: ["400", "500", "600"],
-  style: ["normal", "italic"],
-  subsets: ["latin"],
+  display: "swap",
+  src: [
+    {
+      path: "../../assets/fonts/cormorant-garamond-variable.woff2",
+      weight: "300 700",
+      style: "normal",
+    },
+    {
+      path: "../../assets/fonts/cormorant-garamond-italic-variable.woff2",
+      weight: "300 700",
+      style: "italic",
+    },
+  ],
 });
 
-const jakarta = Plus_Jakarta_Sans({
+const jakarta = localFont({
   variable: "--font-jakarta",
-  weight: ["300", "400", "500", "600"],
-  subsets: ["latin"],
+  display: "swap",
+  src: [
+    {
+      path: "../../assets/fonts/plus-jakarta-sans-variable.woff2",
+      weight: "200 800",
+      style: "normal",
+    },
+  ],
 });
 
 export default function MarketingLayout({ children }: LayoutProps<"/">) {

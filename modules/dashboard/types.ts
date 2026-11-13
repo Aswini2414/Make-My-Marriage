@@ -14,8 +14,19 @@ export type Dashboard = {
   wedding: { brideName: string; groomName: string; weddingDate: string; daysToGo: number };
   /** `guestCount` is the number invited (0 until the Guests module exists). */
   upcomingEvents: UpcomingEvent[];
-  // TODO(Phase 3, 4): RSVP counts (invited from guests, replies from rsvps). `null` until then.
-  rsvp: null;
+  /** How the guests have answered. `overall` counts each guest once; `byEvent` is per event. */
+  rsvp: {
+    overall: { invited: number; attending: number; declined: number; notReplied: number };
+    byEvent: {
+      id: string;
+      name: string;
+      invited: number;
+      attending: number;
+      declined: number;
+      notReplied: number;
+      headcount: number;
+    }[];
+  };
   // TODO(Phase 5): `{ totalSpentPaise }` from the expense log. `null` until then.
   money: null;
   tasks: {

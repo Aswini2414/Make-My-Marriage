@@ -6,6 +6,7 @@ import { toObjectId } from "@/lib/ids";
 import { Event } from "@/modules/events/model";
 import { listUpcomingEvents } from "@/modules/events/service";
 import { hasGuests } from "@/modules/guests/service";
+import { rsvpCountsByEvent, rsvpOverall } from "@/modules/rsvp/counts";
 import { MemberInvite, Membership } from "@/modules/members/model";
 import { type Actor, listTasks } from "@/modules/tasks/service";
 import { Wedding } from "@/modules/weddings/model";
@@ -22,24 +23,27 @@ export async function getDashboard(weddingId: string, actor: Actor): Promise<Das
   const today = todayIST();
   const isAdmin = actor.role === "admin";
 
-  const [wedding, upcoming, tasks, eventCount, hasGuest, members, invites] = await Promise.all([
-    Wedding.findById(wid).select("brideName groomName weddingDate").lean(),
-    listUpcomingEvents(weddingId, today, UPCOMING_EVENTS),
-    // The task service does the counting and the overdue rule; this view is "my open tasks",
-    // which come back in due-date order, overdue first. Only the first few are loaded, and its
-    // counts ignore both the filters and the limit.
-    listTasks(weddingId, actor, { view: "mine", status: "todo" }, NEXT_TASKS),
-    Event.countDocuments({ weddingId: wid }),
-    hasGuests(weddingId),
-    Membership.countDocuments({ weddingId: wid, status: "active" }),
-    // Only Admins see invites. The TTL index removes expired ones a little late, so filter here.
-    isAdmin
-      ? MemberInvite.find({ weddingId: wid, acceptedAt: null, expiresAt: { $gt: new Date() } })
-          .sort({ createdAt: 1 })
-          .select("name")
-          .lean()
-      : [],
-  ]);
+  const [wedding, upcoming, tasks, hasGuest, members, invites, events, overall, byEvent] =
+    await Promise.all([
+      Wedding.findById(wid).select("brideName groomName weddingDate").lean(),
+      listUpcomingEvents(weddingId, today, UPCOMING_EVENTS),
+      // The task service does the counting and the overdue rule; this view is "my open tasks",
+      // which come back in due-date order, overdue first. Only the first few are loaded, and its
+      // counts ignore both the filters and the limit.
+      listTasks(weddingId, actor, { view: "mine", status: "todo" }, NEXT_TASKS),
+      hasGuests(weddingId),
+      Membership.countDocuments({ weddingId: wid, status: "active" }),
+      // Only Admins see invites. The TTL index removes expired ones a little late, so filter here.
+      isAdmin
+        ? MemberInvite.find({ weddingId: wid, acceptedAt: null, expiresAt: { $gt: new Date() } })
+            .sort({ createdAt: 1 })
+            .select("name")
+            .lean()
+        : [],
+      Event.find({ weddingId: wid }).select("name").sort({ date: 1, time: 1, _id: 1 }).lean(),
+      rsvpOverall(wid),
+      rsvpCountsByEvent(wid),
+    ]);
   if (!wedding) throw new ApiError("NOT_FOUND");
 
   const { summary, mine } = tasks;
@@ -59,8 +63,20 @@ export async function getDashboard(weddingId: string, actor: Actor): Promise<Das
       venueName: e.venueName,
       guestCount: e.guestCount,
     })),
-    // TODO(Phase 3, 4): RSVP counts. Invited comes from guests, replies from rsvps.
-    rsvp: null,
+    rsvp: {
+      overall,
+      byEvent: events.map((e) => ({
+        id: String(e._id),
+        name: e.name,
+        ...(byEvent.get(String(e._id)) ?? {
+          invited: 0,
+          attending: 0,
+          declined: 0,
+          notReplied: 0,
+          headcount: 0,
+        }),
+      })),
+    },
     // TODO(Phase 5): `{ totalSpentPaise }` from the expense log.
     money: null,
     tasks: {
@@ -81,7 +97,7 @@ export async function getDashboard(weddingId: string, actor: Actor): Promise<Das
       },
     },
     setup: {
-      events: eventCount > 0,
+      events: events.length > 0,
       tasks: summary.total > 0,
       guests: hasGuest,
       // Someone else has joined. A pending invite does not count: it can expire.

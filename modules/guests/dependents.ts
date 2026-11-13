@@ -1,5 +1,7 @@
 import "server-only";
 import type { ClientSession, Types } from "mongoose";
+import { InvitationSend } from "@/modules/invitations/model";
+import { Rsvp } from "@/modules/rsvp/model";
 import { Guest } from "./model";
 
 // Everything that points at a guest through a guestId.
@@ -21,8 +23,19 @@ export async function removeGuests(
 ): Promise<number> {
   if (guestIds.length === 0) return 0;
 
-  // Phase 4: delete these guests' rsvps ({ weddingId, guestId: { $in: guestIds } }) and take them
-  //   out of invitationSends (guestIds, sentGuestIds, failedGuestIds).
+  // Their answers go, and they come out of every send (so a send's totals stay consistent).
+  await Rsvp.deleteMany({ weddingId, guestId: { $in: guestIds } }, { session });
+  await InvitationSend.updateMany(
+    { weddingId },
+    {
+      $pull: {
+        guestIds: { $in: guestIds },
+        sentGuestIds: { $in: guestIds },
+        failedGuestIds: { $in: guestIds },
+      },
+    },
+    { session },
+  );
   // Phase 5: clear guestId on their gifts ({ $unset: { guestId: 1 } }). The gift's giverName stays.
 
   const result = await Guest.deleteMany({ weddingId, _id: { $in: guestIds } }, { session });
@@ -30,8 +43,8 @@ export async function removeGuests(
 }
 
 /**
- * Takes events out of guests. Used by the event delete (all guests) and by bulk "remove from
- * events". Phase 4: also delete the matching rsvps ({ guestId in guestIds, eventId in eventIds }).
+ * Takes events out of guests, with the answers those guests gave for them. Used by the event
+ * delete (all guests) and by bulk "remove from events".
  */
 export async function unlinkEvents(
   weddingId: Types.ObjectId,
@@ -40,6 +53,10 @@ export async function unlinkEvents(
   guestIds?: Types.ObjectId[],
 ): Promise<void> {
   if (eventIds.length === 0) return;
+  await Rsvp.deleteMany(
+    { weddingId, eventId: { $in: eventIds }, ...(guestIds ? { guestId: { $in: guestIds } } : {}) },
+    { session },
+  );
   await Guest.updateMany(
     { weddingId, ...(guestIds ? { _id: { $in: guestIds } } : {}), eventIds: { $in: eventIds } },
     { $pull: { eventIds: { $in: eventIds } } },

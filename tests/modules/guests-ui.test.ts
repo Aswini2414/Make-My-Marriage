@@ -141,6 +141,8 @@ describe("walking to a page with keyset cursors", () => {
         eventIds: [],
         inviteStatus: "not_sent" as const,
         rsvp: { replied: 0, of: 0 },
+        reminderCount: 0,
+        answers: [],
       }));
       return { items, total: n, ...(start + 25 < n ? { nextCursor: String(start + 25) } : {}) };
     };

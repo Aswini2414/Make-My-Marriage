@@ -76,7 +76,7 @@ export function StatCards({ data }: { data: Dashboard }) {
         <p className="mt-4 text-[11px] text-surface/70">{formatDateWithDay(wedding.weddingDate)}</p>
       </div>
 
-      {/* TODO(Phase 3, 4): show the counts here once `data.rsvp` is not null. */}
+      {/* TODO(Phase 4C): show the counts here. `data.rsvp` is real now (`overall` and `byEvent`). */}
       <NotStartedCard label="RSVP" note="Send invitations to see replies here" href="/guests" />
 
       {/* TODO(Phase 5): show the total here once `data.money` is not null. */}

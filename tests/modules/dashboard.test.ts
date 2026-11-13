@@ -75,7 +75,10 @@ describe("GET /api/dashboard", () => {
       daysToGo: daysBetween(todayIST(), "2027-02-14"),
     });
     expect(d.upcomingEvents).toEqual([]);
-    expect(d.rsvp).toBeNull();
+    expect(d.rsvp).toEqual({
+      overall: { invited: 0, attending: 0, declined: 0, notReplied: 0 },
+      byEvent: [],
+    });
     expect(d.money).toBeNull();
     expect(d.tasks).toEqual({
       total: 0,

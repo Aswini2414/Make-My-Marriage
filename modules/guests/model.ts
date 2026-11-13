@@ -22,6 +22,8 @@ const guestSchema = new Schema(
     inviteTokenEnc: { type: String, required: true, select: false },
     lastInviteSentAt: { type: Date },
     lastReminderSentAt: { type: Date },
+    // How many reminder emails have gone out to this guest.
+    reminderCount: { type: Number, required: true, default: 0, min: 0 },
     inviteOpenedAt: { type: Date },
   },
   { timestamps: true, collection: "guests" },

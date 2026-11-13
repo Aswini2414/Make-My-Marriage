@@ -316,7 +316,7 @@ All event endpoints need **Member** access.
 
 | Method | Path | Does |
 | --- | --- | --- |
-| GET | `/api/events` | All events, sorted by date then time |
+| GET | `/api/events` | All events, sorted by date then time. Each has `guestCount` and an `rsvp` summary (`attending`, `declined`, `notReplied`, `headcount`) |
 | POST | `/api/events` | Create an event |
 | GET | `/api/events/:id` | One event, with its RSVP counts |
 | PATCH | `/api/events/:id` | Update an event |
@@ -416,8 +416,8 @@ All guest endpoints need **Member** access.
 | POST | `/api/guests/bulk-delete` | Delete many guests at once |
 | GET | `/api/guests/households` | The household names in use, for the filter dropdown |
 | GET | `/api/guests/summary` | The four numbers above the Guests list |
-| POST | `/api/guests/:id/regenerate-link` | Replace a guest's invitation link (Phase 4) |
-| GET | `/api/guests/:id/link` | The guest's current invitation link, to copy and share by hand (Phase 4) |
+| POST | `/api/guests/:id/regenerate-link` | Replace a guest's invitation link |
+| GET | `/api/guests/:id/link` | The guest's current invitation link, to copy and share by hand |
 | GET | `/api/guests/import/template` | Download the CSV or Excel template |
 | POST | `/api/guests/import/preview` | Check an uploaded file and show row errors |
 | POST | `/api/guests/import/commit` | Save the checked rows |
@@ -436,12 +436,15 @@ All guest endpoints need **Member** access.
   "inviteStatus": "sent",
   "lastInviteSentAt": "…",
   "inviteOpenedAt": "…",
-  "rsvp": { "replied": 2, "of": 2 }
+  "lastReminderSentAt": "…",
+  "reminderCount": 1,
+  "rsvp": { "replied": 2, "of": 2 },
+  "answers": [ { "eventId": "…", "attending": true, "headcount": 3 } ]
 }
 ```
 
 - `inviteStatus` is worked out on read: `not_sent`, `sent` or `opened`.
-- `rsvp` counts how many of the guest's events have an answer.
+- `rsvp` counts how many of the guest's events have an answer. `answers` lists those answers (an event with no answer is absent: not replied). `reminderCount` and `lastReminderSentAt` say how many reminders the guest has had and when the last one went out.
 - In `GET /api/guests` only, a row may also have `"duplicate": true`: another guest in this wedding has the same email or phone (the Guests page shows "Possible duplicate").
 - The token itself is never in this object. It's only returned by `GET /api/guests/:id/link`.
 
@@ -451,7 +454,7 @@ All guest endpoints need **Member** access.
 | --- | --- |
 | `q` | Search name, email, phone or household. Case-insensitive; a phone search ignores spaces, so `98480` finds `+91 98480 12345` |
 | `eventId` | Only guests invited to this event |
-| `rsvpStatus` | `attending`, `declined` or `not_replied`. Needs `eventId` (400 otherwise). Until Phase 4 nobody has replied, so `not_replied` matches everyone at the event and the others match no one |
+| `rsvpStatus` | `attending`, `declined` or `not_replied`. Needs `eventId` (400 otherwise). For that event: `attending` and `declined` are guests whose answer says so, `not_replied` is invited guests with no answer |
 | `inviteStatus` | `not_sent`, `sent` or `opened` |
 | `household` | Exact household name |
 | `sort` | `name` (default) or `-createdAt` |
@@ -585,7 +588,7 @@ Sends the preview to the member's own email, with "\[Test\]" in the subject. Ret
 // Request
 {
   "kind": "invite",
-  "eventIds": ["…", "…"],
+  "eventIds"?: ["…", "…"],
   "guestFilter": { "guestIds"?: ["…"], "inviteStatus"?: "not_sent", "rsvpStatus"?: "not_replied" }
 }
 
@@ -599,11 +602,13 @@ Sends the preview to the member's own email, with "\[Test\]" in the subject. Ret
 }
 ```
 
+- `eventIds` left out means every event each guest is invited to.
 - The guest list is fixed at this moment. Guests added later aren't included.
 - Only guests invited to at least one of `eventIds` are included. Each email lists only that guest's events.
 - For a reminder, `rsvpStatus: "not_replied"` picks only guests who haven't answered for at least one of the events.
 - `skippedNoEmail` counts guests left out because they have no email address.
-- 409 `SEND_IN_PROGRESS` if this wedding already has a send in progress. Finish or cancel it first.
+- 409 `SEND_IN_PROGRESS` if this wedding already has a send in progress or paused for the daily limit. Finish or cancel it first.
+- 400 `VALIDATION_FAILED` if nobody has an email address to send to, and 400 `VALIDATION_FAILED` (`fields.kind`) once the RSVP cut-off day has passed: guests can no longer reply, so neither an invitation nor a reminder can start. Moving the cut-off in Settings opens sending again. When a cut-off is set, every email says "Please reply by {date}."
 
 ### POST /api/invitations/sends/:id/next
 
@@ -623,7 +628,7 @@ Sends the next 20 emails. The browser calls this repeatedly until `status` is no
 | `completed` | Everyone has been tried | Shows the result, and failed addresses if any |
 | `cancelled` | A member stopped it | Shows how many were sent |
 
-Calling `next` on a paused send resumes it once the cap allows. Only one batch runs at a time: `next` first sets the send's `lockedUntil` to one minute ahead, and only if no lock is active. A second call meanwhile gets 409 `SEND_BUSY` and the page simply waits and tries again, so nobody gets two emails.
+Calling `next` on a paused send resumes it once the cap allows; while the cap is still used up it answers 200 with the status still `paused_daily_limit` and sends nothing. Progress is saved after every single email, so a crash during a batch can repeat at most the one email in flight. Only one batch runs at a time: `next` first sets the send's `lockedUntil` to one minute ahead, and only if no lock is active. A second call meanwhile gets 409 `SEND_BUSY` and the page simply waits and tries again, so nobody gets two emails.
 
 ### GET /api/invitations/sends/:id
 
@@ -970,8 +975,9 @@ Sets `status` to `done`, with `completedAt` and `completedBy`. Allowed for the a
 
 - `daysToGo` is counted in India Standard Time, and is 0 on the wedding day.
 - `upcomingEvents` holds the next 5 events dated today or later, in date and time order. Past events are left out. `guestCount` is the number of guests invited (0 until Phase 3).
-- `rsvp` and `money` are `null` until their modules exist. When built, `rsvp` is `{ overall: { invited, attending, declined, notReplied }, byEvent: [ … ] }` (Phase 3 and 4) and `money` is `{ totalSpentPaise }` (Phase 5). The page shows a quiet "not started" card while they are `null`.
-- `rsvp.overall` (when built) counts each guest once: **attending** if they're coming to at least one event, **declined** if they declined everything they answered, and **not replied** if they haven't answered any.
+- `rsvp` is `{ overall: { invited, attending, declined, notReplied }, byEvent: [ … ] }` (always present, zeros before any invitation). `money` is `null` until Phase 5, then `{ totalSpentPaise }`; the page shows a quiet "not started" card while it is `null`.
+- `rsvp.byEvent` has one row per event: `{ id, name, invited, attending, declined, notReplied, headcount }`, where `headcount` is the number of people coming.
+- `rsvp.overall` counts each guest once: **attending** if they're coming to at least one event, **declined** if they declined everything they answered, and **not replied** if they haven't answered any.
 - `tasks` comes from the same counts as `GET /api/tasks` (`summary` and `mine`), so the overdue rule is the one in `modules/tasks/overdue.ts`. `tasks.mine` is the logged-in member's own: how many tasks they have in all (`total`, so "nothing assigned to me" differs from "all mine are done"), their open and overdue counts, and their next 3 open tasks, earliest due date first. Only those 3 are loaded; the counts cover every task.
 - `setup` tells the dashboard's setup checklist what is done: an event exists, a task exists, a guest exists (always `false` until Phase 3), another member has joined. A pending invite does not tick `team`, because it can expire. The checklist goes away once everything that can be done yet is done, so the unbuilt guests item does not hold it open.
 - `pendingInviteNames` (who was invited and has not joined) is included for Admins only. Its length is the count.
@@ -1077,7 +1083,7 @@ These serve guests and photographers, who never log in. They live under `/api/pu
 | POST | `/api/public/upload/:token/urls` | Token | Signed upload URLs for a batch of photos |
 | POST | `/api/public/upload/:token/complete` | Token | Save the photos that uploaded |
 
-An unknown or regenerated token always answers 404 `LINK_NOT_FOUND`, with the same message, so links can't be guessed by trying.
+An unknown or regenerated token always answers 404 `LINK_NOT_FOUND`, with the same message, so links can't be guessed by trying. An address that makes 20 such misses in 15 minutes gets 429 `RATE_LIMITED` on its next unknown link for the rest of the window. The token is checked first and only misses count, so a working link is never held back, not even by other people's mistakes from the same address. The replies are never cached.
 
 ### GET /api/public/w/:slug
 

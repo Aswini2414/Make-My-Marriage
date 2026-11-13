@@ -192,6 +192,7 @@ One document per invited person or family contact.
 | `inviteTokenHash` | String | Yes | SHA-256 hex, unique. Created with the guest |
 | `lastInviteSentAt` | Date | No | Set when an invitation email goes out |
 | `lastReminderSentAt` | Date | No | Set when a reminder email goes out |
+| `reminderCount` | Int | Yes | Default `0`. How many reminder emails the guest has been sent |
 | `inviteOpenedAt` | Date | No | Set the first time the guest opens their link |
 
 **The guest's link** is also stored as `inviteTokenEnc` (String, required): the token encrypted with `TOKEN_ENCRYPTION_KEY`. Reminder emails decrypt it to include the same link again. A database leak alone doesn't expose working links, because the key lives only in the environment.
@@ -396,6 +397,8 @@ One document per counted action: a login attempt, an RSVP save, an upload reques
 | `forgot:<email>` | Password reset requests | 3 | 1 hour |
 | `rsvp:<guestId>` | RSVP saves | 20 | 1 hour |
 | `upload:<qrCodeId>:<ip>` | Upload URL requests | 10 | 10 minutes |
+| `test-email:<weddingId>` | Test emails sent from the Invitations page | 10 | 1 hour |
+| `invite-miss:ip:<ip>` | Guest-link lookups with an unknown or regenerated token (only misses count) | 20 | 15 minutes |
 | `gmail:daily` | Every email the app sends: invitations, reminders, member invites, password resets | 450 | 24 hours |
 
 **How a check works:**

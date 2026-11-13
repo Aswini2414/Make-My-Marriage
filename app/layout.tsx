@@ -1,19 +1,25 @@
 import type { Metadata, Viewport } from "next";
-import { Instrument_Serif, Inter } from "next/font/google";
+import localFont from "next/font/local";
 import { appUrl } from "@/lib/env";
 import "./globals.css";
 
-const instrumentSerif = Instrument_Serif({
+// The fonts are files in assets/fonts (the Latin subset of Instrument Serif and Inter, as served
+// by Google Fonts), not downloaded by next/font/google. A dev server or build with no route to
+// fonts.gstatic.com then still starts, instead of failing every page with "module not found".
+const instrumentSerif = localFont({
   variable: "--font-instrument-serif",
-  weight: "400",
-  style: ["normal", "italic"],
-  subsets: ["latin"],
+  display: "swap",
+  src: [
+    { path: "../assets/fonts/instrument-serif-400.woff2", weight: "400", style: "normal" },
+    { path: "../assets/fonts/instrument-serif-400-italic.woff2", weight: "400", style: "italic" },
+  ],
 });
 
-const inter = Inter({
+// One variable file covers every weight.
+const inter = localFont({
   variable: "--font-inter",
-  weight: ["400", "500", "600"],
-  subsets: ["latin"],
+  display: "swap",
+  src: [{ path: "../assets/fonts/inter-variable.woff2", weight: "100 900", style: "normal" }],
 });
 
 export const metadata: Metadata = {

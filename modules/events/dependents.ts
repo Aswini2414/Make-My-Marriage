@@ -3,7 +3,10 @@ import type { ClientSession, Types } from "mongoose";
 import { invitedCountsByEvent } from "@/modules/guests/counts";
 import { unlinkEvents } from "@/modules/guests/dependents";
 import { Guest } from "@/modules/guests/model";
+import { InvitationSend } from "@/modules/invitations/model";
 import { QrCode } from "@/modules/qr/model";
+import { type RsvpCounts, rsvpCountsByEvent } from "@/modules/rsvp/counts";
+import { Rsvp } from "@/modules/rsvp/model";
 import { Task } from "@/modules/tasks/model";
 import type { ImpactKey } from "./format";
 
@@ -35,8 +38,18 @@ export const eventDependents: Record<ImpactKey, EventDependent> = {
     count: ({ weddingId, eventId }) => Guest.countDocuments({ weddingId, eventIds: eventId }),
     cleanup: ({ weddingId, eventId }, session) => unlinkEvents(weddingId, [eventId], session),
   },
-  // Phase 4: delete the event's rsvps.
-  rsvps: notBuiltYet,
+  // The event's answers go with it, and it comes out of the sends that covered it.
+  rsvps: {
+    count: ({ weddingId, eventId }) => Rsvp.countDocuments({ weddingId, eventId }),
+    cleanup: async ({ weddingId, eventId }, session) => {
+      await Rsvp.deleteMany({ weddingId, eventId }, { session });
+      await InvitationSend.updateMany(
+        { weddingId, eventIds: eventId },
+        { $pull: { eventIds: eventId } },
+        { session },
+      );
+    },
+  },
   // Phase 5: clear eventId on expenses and on gifts.
   expenses: notBuiltYet,
   gifts: notBuiltYet,
@@ -68,16 +81,9 @@ export function guestCounts(
   return invitedCountsByEvent(weddingId, eventIds);
 }
 
-export type RsvpCounts = {
-  invited: number;
-  attending: number;
-  declined: number;
-  notReplied: number;
-  headcount: number;
-};
+export type { RsvpCounts };
 
-/** RSVP counts for one event. Phase 4 fills this in (see "RSVP counts" in database-design.md). */
-export async function rsvpCounts(ids: Ids): Promise<RsvpCounts> {
-  void ids;
-  return { invited: 0, attending: 0, declined: 0, notReplied: 0, headcount: 0 };
+/** RSVP counts for one event, from the one counting function (modules/rsvp/counts.ts). */
+export async function rsvpCounts({ weddingId, eventId }: Ids): Promise<RsvpCounts> {
+  return (await rsvpCountsByEvent(weddingId, [eventId])).get(String(eventId))!;
 }

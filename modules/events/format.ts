@@ -20,6 +20,8 @@ export type EventItem = {
   notes?: string;
   youtubeLink?: string;
   guestCount: number;
+  /** Set on the Events list only: how the invited guests have answered. */
+  rsvp?: { attending: number; declined: number; notReplied: number; headcount: number };
 };
 
 /** The short label for a type chip: the Wedding type reads "Wedding", as in the design. */

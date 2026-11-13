@@ -15,8 +15,13 @@ export type GuestItem = {
   inviteStatus: InviteStatus;
   lastInviteSentAt?: string;
   inviteOpenedAt?: string;
-  /** How many of the guest's events have an answer. Always 0 replied until Phase 4. */
+  lastReminderSentAt?: string;
+  /** How many reminder emails have gone out to this guest. */
+  reminderCount: number;
+  /** How many of the guest's events have an answer. */
   rsvp: { replied: number; of: number };
+  /** The guest's answers, one per event answered (attending N / declined). Not replied = absent. */
+  answers: { eventId: string; attending: boolean; headcount: number }[];
   /** Another guest in this wedding has the same email or phone. Set on list rows only. */
   duplicate?: true;
 };

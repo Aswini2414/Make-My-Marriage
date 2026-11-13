@@ -11,7 +11,14 @@ import { formatDate, weddingDateBounds } from "@/lib/dates";
 import { brideName, groomName, weddingDate } from "@/modules/weddings/schema";
 
 type Props = {
-  wedding: { brideName: string; groomName: string; weddingDate: string; slug: string };
+  wedding: {
+    brideName: string;
+    groomName: string;
+    weddingDate: string;
+    slug: string;
+    /** After this day guests can no longer change their RSVP. */
+    rsvpCutoffDate: string | null;
+  };
   isAdmin: boolean;
   today: string;
 };
@@ -25,6 +32,7 @@ export function WeddingSettings({ wedding, isAdmin, today }: Props) {
   const [bride, setBride] = useState(wedding.brideName);
   const [groom, setGroom] = useState(wedding.groomName);
   const [date, setDate] = useState(wedding.weddingDate);
+  const [cutoff, setCutoff] = useState(wedding.rsvpCutoffDate ?? "");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [banner, setBanner] = useState<string>();
   const [saved, setSaved] = useState(false);
@@ -39,7 +47,8 @@ export function WeddingSettings({ wedding, isAdmin, today }: Props) {
   const changed =
     bride.trim() !== wedding.brideName ||
     groom.trim() !== wedding.groomName ||
-    date !== wedding.weddingDate;
+    date !== wedding.weddingDate ||
+    cutoff !== (wedding.rsvpCutoffDate ?? "");
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -53,6 +62,9 @@ export function WeddingSettings({ wedding, isAdmin, today }: Props) {
     if (!b.success) found.brideName = b.error.issues[0]!.message;
     if (!g.success) found.groomName = g.error.issues[0]!.message;
     if (!d.success) found.weddingDate = d.error.issues[0]!.message;
+    if (cutoff && d.success && cutoff > date) {
+      found.rsvpCutoffDate = "The RSVP cut-off can’t be after the wedding date.";
+    }
     setErrors(found);
     if (Object.keys(found).length) return;
 
@@ -61,6 +73,8 @@ export function WeddingSettings({ wedding, isAdmin, today }: Props) {
       brideName: bride,
       groomName: groom,
       weddingDate: date,
+      // An empty field clears the cut-off (guests can always answer).
+      rsvpCutoffDate: cutoff || null,
     });
     setSaving(false);
     if (!res.ok) {
@@ -142,6 +156,24 @@ export function WeddingSettings({ wedding, isAdmin, today }: Props) {
               onChange={(e) => setDate(e.target.value)}
               error={errors.weddingDate}
               hint={date && !errors.weddingDate ? formatDate(date) : undefined}
+            />
+          </div>
+          <div className="mt-4 max-w-xs">
+            <TextField
+              id="rsvpCutoffDate"
+              label="RSVP cut-off date (optional)"
+              type="date"
+              max={date || undefined}
+              value={cutoff}
+              onChange={(e) => setCutoff(e.target.value)}
+              error={errors.rsvpCutoffDate}
+              hint={
+                errors.rsvpCutoffDate
+                  ? undefined
+                  : cutoff
+                    ? `Guests can change their reply until ${formatDate(cutoff)}.`
+                    : "Leave empty to let guests reply any time."
+              }
             />
           </div>
           <div className="mt-6 flex justify-end border-t border-lilac pt-4">

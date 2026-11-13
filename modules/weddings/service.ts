@@ -5,8 +5,10 @@ import { toObjectId } from "@/lib/ids";
 import { encryptToken, generateToken, hashToken } from "@/lib/tokens";
 import { Event } from "@/modules/events/model";
 import { Guest } from "@/modules/guests/model";
+import { InvitationSend } from "@/modules/invitations/model";
 import { MemberInvite, Membership } from "@/modules/members/model";
 import { QrCode } from "@/modules/qr/model";
+import { Rsvp } from "@/modules/rsvp/model";
 import { Task } from "@/modules/tasks/model";
 import { Wedding, type WeddingAttrs } from "./model";
 import type { CreateWeddingInput, UpdateWeddingInput } from "./schema";
@@ -206,6 +208,8 @@ export async function deleteWedding(weddingId: string, confirmSlug: string): Pro
     await QrCode.deleteMany({ weddingId: wid }, { session });
     await Event.deleteMany({ weddingId: wid }, { session });
     await Guest.deleteMany({ weddingId: wid }, { session });
+    await Rsvp.deleteMany({ weddingId: wid }, { session });
+    await InvitationSend.deleteMany({ weddingId: wid }, { session });
     await Task.deleteMany({ weddingId: wid }, { session });
     await MemberInvite.deleteMany({ weddingId: wid }, { session });
     await Membership.updateMany(

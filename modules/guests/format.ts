@@ -122,10 +122,17 @@ export function guestEventNames(eventIds: string[], events: { id: string; name: 
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-/** "Invited to 3 events (Haldi, Mehendi, Muhurtham)." for the delete confirmation. */
-export function deleteImpactLine(names: string[]): string {
-  if (names.length === 0) return "Not invited to any events yet.";
-  return `Invited to ${plural(names.length, "event")} (${names.join(", ")}).`;
+/**
+ * "Invited to 3 events (Haldi, Mehendi, Muhurtham). Their 2 RSVPs will be deleted." for the
+ * delete confirmation. `rsvps` is how many answers the guest has given.
+ */
+export function deleteImpactLine(names: string[], rsvps = 0): string {
+  const invited =
+    names.length === 0
+      ? "Not invited to any events yet."
+      : `Invited to ${plural(names.length, "event")} (${names.join(", ")}).`;
+  if (rsvps === 0) return invited;
+  return `${invited} Their ${rsvps === 1 ? "RSVP" : `${rsvps} RSVPs`} will be deleted too.`;
 }
 
 // ---- import review ----

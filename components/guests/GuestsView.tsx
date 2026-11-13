@@ -473,6 +473,7 @@ export function GuestsView({
                 id: deleting.guest.id,
                 name: deleting.guest.name,
                 eventNames: guestEventNames(deleting.guest.eventIds, events),
+                rsvps: deleting.guest.rsvp.replied,
               }
             : { kind: "many" as const, ids: deleting.ids })}
           onClose={() => setDeleting(undefined)}

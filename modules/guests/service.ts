@@ -5,6 +5,8 @@ import { ApiError } from "@/lib/errors";
 import { toObjectId } from "@/lib/ids";
 import { encryptToken, generateToken, hashToken } from "@/lib/tokens";
 import { Event } from "@/modules/events/model";
+import { Rsvp } from "@/modules/rsvp/model";
+import { answersForGuests, type GuestAnswer } from "@/modules/rsvp/service";
 import { removeGuests, unlinkEvents } from "./dependents";
 import { Guest, type GuestAttrs } from "./model";
 import { phoneSearchPattern } from "./phone";
@@ -32,7 +34,10 @@ function inviteStatusOf(g: Pick<GuestAttrs, "lastInviteSentAt" | "inviteOpenedAt
   return "not_sent";
 }
 
-function toGuestItem(g: GuestDoc): GuestItem {
+function toGuestItem(g: GuestDoc, answered: GuestAnswer[] = []): GuestItem {
+  // Only answers for events the guest is still invited to count (cleanup keeps these in step).
+  const invited = new Set(g.eventIds.map(String));
+  const answers = answered.filter((a) => invited.has(a.eventId));
   return {
     id: String(g._id),
     name: g.name,
@@ -44,8 +49,14 @@ function toGuestItem(g: GuestDoc): GuestItem {
     inviteStatus: inviteStatusOf(g),
     ...(g.lastInviteSentAt ? { lastInviteSentAt: g.lastInviteSentAt.toISOString() } : {}),
     ...(g.inviteOpenedAt ? { inviteOpenedAt: g.inviteOpenedAt.toISOString() } : {}),
-    // Phase 4: `replied` counts the guest's rsvps.
-    rsvp: { replied: 0, of: g.eventIds.length },
+    ...(g.lastReminderSentAt ? { lastReminderSentAt: g.lastReminderSentAt.toISOString() } : {}),
+    reminderCount: g.reminderCount ?? 0,
+    rsvp: { replied: answers.length, of: g.eventIds.length },
+    answers: answers.map((a) => ({
+      eventId: a.eventId,
+      attending: a.attending,
+      headcount: a.headcount,
+    })),
   };
 }
 
@@ -153,14 +164,6 @@ function afterCursor(cursor: string, sort: SortKey): Record<string, unknown> {
 }
 
 /**
- * Phase 4 replaces this with a lookup in rsvps. Until then nobody has answered, so no guest is
- * "attending" or "declined", and everyone is "not replied".
- */
-function rsvpMatchesNobody(status: ListGuestsQuery["rsvpStatus"]) {
-  return status === "attending" || status === "declined";
-}
-
-/**
  * One page of guests. With `light` the total and the duplicate tags are left out (total 0): for
  * walking through pages that are only passed over on the way to a later one.
  */
@@ -177,8 +180,6 @@ export async function listGuests(
       fields: { rsvpStatus: "Choose an event to filter by reply." },
     });
   }
-  if (rsvpMatchesNobody(query.rsvpStatus)) return { items: [], total: 0 };
-
   const filter: Record<string, unknown> = { weddingId: wid };
   if (query.eventId) filter.eventIds = toObjectId(query.eventId);
   // A case-sensitive regex, not equality: the list's collation would make equality ignore case,
@@ -208,6 +209,18 @@ export async function listGuests(
     filter.$or = or;
   }
 
+  // "Replied" filter for one event, worked out from the answers: the guests who said yes or no,
+  // or the invited guests with no answer. (The event filter above already limits to its guests.)
+  if (query.rsvpStatus && query.eventId) {
+    const answered = { weddingId: wid, eventId: toObjectId(query.eventId) };
+    if (query.rsvpStatus === "not_replied") {
+      filter._id = { $nin: await Rsvp.distinct("guestId", answered) };
+    } else {
+      const attending = query.rsvpStatus === "attending";
+      filter._id = { $in: await Rsvp.distinct("guestId", { ...answered, attending }) };
+    }
+  }
+
   const sort: Record<string, 1 | -1> =
     query.sort === "-createdAt" ? { createdAt: -1, _id: -1 } : { name: 1, _id: 1 };
   // The name order ignores case (collation) and is backed by an index with the same collation.
@@ -224,12 +237,18 @@ export async function listGuests(
   ]);
   const page = found.slice(0, query.limit);
   const last = page[page.length - 1];
+  const answers = light
+    ? new Map<string, GuestAnswer[]>()
+    : await answersForGuests(
+        wid,
+        page.map((g) => g._id),
+      );
   const repeated = light
     ? { emails: new Set<string>(), phones: new Set<string>() }
     : await repeatedContacts(wid, page);
   return {
     items: page.map((g) => {
-      const item = toGuestItem(g);
+      const item = toGuestItem(g, answers.get(String(g._id)));
       const dupe =
         (g.email && repeated.emails.has(g.email)) || (g.phone && repeated.phones.has(g.phone));
       return dupe ? { ...item, duplicate: true as const } : item;
@@ -271,21 +290,17 @@ async function findGuest(wid: Types.ObjectId, id: string) {
   return guest;
 }
 
-export type GuestRsvp = {
-  eventId: string;
-  attending: boolean;
-  headcount: number;
-  respondedAt: string;
-};
+export type GuestRsvp = GuestAnswer;
 
 export async function getGuest(
   weddingId: string,
   id: string,
 ): Promise<{ guest: GuestItem; rsvps: GuestRsvp[] }> {
   await connectDb();
-  const guest = await findGuest(toObjectId(weddingId), id);
-  // Phase 4: load the guest's rsvps.
-  return { guest: toGuestItem(guest), rsvps: [] };
+  const wid = toObjectId(weddingId);
+  const guest = await findGuest(wid, id);
+  const rsvps = (await answersForGuests(wid, [guest._id])).get(String(guest._id)) ?? [];
+  return { guest: toGuestItem(guest, rsvps), rsvps };
 }
 
 export type SaveResult = { guest: GuestItem } | DuplicateWarning;
@@ -356,24 +371,37 @@ export async function updateGuest(
     if (value === null) unset[key] = 1;
     else if (value !== undefined) set[key] = value;
   }
-  // Phase 4: for events taken out of eventIds, delete the guest's rsvps for them.
   const saveChanges = async (session?: ClientSession) => {
-    if (input.eventIds) set.eventIds = await assertEventsBelong(wid, input.eventIds, session);
+    if (input.eventIds) {
+      set.eventIds = await assertEventsBelong(wid, input.eventIds, session);
+      // Events taken off the guest take their answers with them (same transaction).
+      await Rsvp.deleteMany(
+        {
+          weddingId: wid,
+          guestId: existing._id,
+          eventId: { $nin: set.eventIds as Types.ObjectId[] },
+        },
+        { ...(session ? { session } : {}) },
+      );
+    }
     const changes = {
       ...(Object.keys(set).length ? { $set: set } : {}),
       ...(Object.keys(unset).length ? { $unset: unset } : {}),
     };
-    return Guest.findOneAndUpdate({ _id: existing._id, weddingId: wid }, changes, {
+    const updated = await Guest.findOneAndUpdate({ _id: existing._id, weddingId: wid }, changes, {
       returnDocument: "after",
       runValidators: true,
       ...(session ? { session } : {}),
     }).lean();
+    // Inside the transaction, so a guest deleted meanwhile aborts it instead of committing.
+    if (!updated) throw new ApiError("NOT_FOUND");
+    return updated;
   };
   // With events in the change, the write is in a transaction that guards against a concurrent
   // event delete (see assertEventsBelong).
   const guest = input.eventIds ? await inTransaction(saveChanges) : await saveChanges();
-  if (!guest) throw new ApiError("NOT_FOUND");
-  return { guest: toGuestItem(guest) };
+  const rsvps = (await answersForGuests(wid, [guest._id])).get(String(guest._id)) ?? [];
+  return { guest: toGuestItem(guest, rsvps) };
 }
 
 /** Every id must be this wedding's guest, or the whole call answers 404 and changes nothing. */

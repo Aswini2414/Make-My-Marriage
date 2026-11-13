@@ -1,6 +1,6 @@
 # Make My Marriage — Project Status
 
-**Last updated:** Nov 11, 2026 · **Branch:** `dev` · **Last feature commit:** Phase 3, step 3B, the Guests page and import wizard (see `git log`). Before it: 3A, the guests backend. Before it: Phase 2D (the dashboard numbers) and the first-deploy preparation, which is only prepared, **not deployed** (see Done). 2C (tasks backend and Tasks page) is `d8c14dc`, 2A and 2B are `3eb6ea0`, Phase 1 is `715c68d`.
+**Last updated:** Nov 13, 2026 (4A manual-QA fixes) · **Branch:** `dev` · **Last feature commit:** Phase 4, step 4A, the invitations, sending and RSVP backend (see `git log`). Before it: 3B, the Guests page and import, and 3A, the guests backend. Before it: Phase 2D (the dashboard numbers) and the first-deploy preparation, which is only prepared, **not deployed** (see Done). 2C (tasks backend and Tasks page) is `d8c14dc`, 2A and 2B are `3eb6ea0`, Phase 1 is `715c68d`.
 
 This file tracks how far the build has got. It is a progress log, not a design document: the PRD, system design, database design and API design stay the source of truth for _what_ to build. Read it at the start of every session, and update it whenever a feature or phase step is finished (see [How to update](#how-to-update-this-file)).
 
@@ -13,16 +13,51 @@ This file tracks how far the build has got. It is a progress log, not a design d
 | 1. Setup and accounts | ✅ Done (1A–1E) |
 | 2. Events, tasks and dashboard | ✅ Done (2A–2D) |
 | 3. Guests | ✅ Done (3A backend, 3B Guests page and import) |
-| 4. Invitations and RSVP | ⬜ Not started |
+| 4. Invitations and RSVP | 🟡 4A backend done; 4B guest invitation page and 4C Invitations page next |
 | 5. Money: expenses and gifts | ⬜ Not started |
 | 6. Vendors | ⬜ Not started |
 | 7. Wedding website and live stream | ⬜ Not started |
 | 8. Photo sharing | ⬜ Not started |
 | 9. Testing and launch | ⬜ Not started |
 
-**Next up:** Phase 4: Invitations and RSVP. Guests already have their personal invitation tokens (3A), and the dashboard's RSVP card and the Guests list's "Replied" filter wait for it (the API already takes `rsvpStatus`; the page hides the filter until RSVPs exist). Open decision from 1D: build cover-photo upload with the files module (Phase 8), or earlier. Cover-photo upload is still waiting for that module.
+**Next up:** Phase 4, step 4B (see the 4A manual-QA notes: re-fetch after a failed save): the guest-facing invitation page at `/i/<token>` (the page for `GET /api/public/invite/:token` and `POST .../rsvp`: events, yes/no and number of people per event, read-only after the cut-off). Then 4C: the Invitations page (compose, preview, send in batches with progress and Resume, failed addresses, quota) and the dashboard RSVP card and Guests "Replied" filter in the UI (their data and API are ready). Open decision from 1D: build cover-photo upload with the files module (Phase 8), or earlier.
 
 ## Done
+
+### Phase 4, step 4A: manual-QA fixes
+
+A manual pass over the 4A backend (reading the code, then probing the real routes against a throwaway database) found six things. Four are fixed; two are notes for the next steps.
+
+- **Fixed: no sending after the RSVP cut-off.** `startSend` refuses an invitation or a reminder once the cut-off day has passed (400, `fields.kind`: "The RSVP cut-off has passed. Move the cut-off date in Settings to send more."). Before, the email went out and the guest's link then answered `RSVP_CLOSED`. Emails now also say "Please reply by {date}." when a cut-off is set.
+- **Fixed: readable messages.** `RSVP_CLOSED`, `EVENT_NOT_INVITED`, `SEND_IN_PROGRESS` and `SEND_BUSY` had no default message, so the API answered with the raw code. They have plain wording in `lib/errors.ts`.
+- **Fixed: a working link is never rate-limited.** The public lookups check the token first and count only misses, so 20 bad lookups from one address (a venue's Wi-Fi) no longer block guests whose links are good. Unknown links from that address still get 429.
+- **Fixed: duplicate event ids in a reply** are now compared in lower case; before, `ABC…` and `abc…` passed the "answer each event once" check and the second silently overwrote the first.
+- **Note for 4B:** a save is all-or-nothing. If an event is deleted while the guest has the page open, the save answers 400 `EVENT_NOT_INVITED` and keeps nothing. The page must re-fetch the invitation and show the updated events, not only the error.
+- **Note for 4C:** show the preview's `html` in a sandboxed iframe (it holds the guest's personal link), default a new invitation send to guests not yet sent (`inviteStatus: "not_sent"`), and show the cut-off error above next to Start.
+- Tests: 7 new (455 in all). Typecheck, lint and the whole suite pass.
+
+#### Code-review fixes (same step)
+
+- **Invitation emails no longer link to the wedding website** (`/w/<slug>` is a placeholder until Phase 7, and a sent email cannot be corrected). The template still supports `websiteUrl`; Phase 7 passes it in for published weddings only.
+- RSVP reads and writes now filter by the guest's `weddingId` too.
+- `updateGuest` throws NOT_FOUND inside its transaction, so a guest deleted meanwhile aborts it instead of committing.
+- `reserve()` (`lib/rate-limit.ts`) answers `Retry-After` from the window (when the oldest counted hit expires) instead of a fixed 3600 seconds, so the 24-hour email cap no longer tells clients to retry in an hour.
+- A failing rate-limit give-back (`release()`) no longer replaces the real answer (403 or 400) with a 500, in `saveAnswers` and `sendTestEmail`.
+- The dashboard no longer runs a separate event count: it uses the events list it already loads.
+- Kept as designed (reviewed, no change): regenerating a link makes the guest "not sent" again, because the emailed link is dead (comment corrected); sending is refused after the cut-off for invitations as well as reminders, and the message tells the couple to move the cut-off in Settings.
+- **Note for 4B:** "opened" is set by `GET /api/public/invite/:token`. A mail scanner that loads only the page HTML does not call it, but the page must call it from the browser after load, not during server rendering, so prefetch bots do not mark guests as opened.
+
+### Phase 4, step 4A: invitations, sending and RSVP (backend only)
+
+- Models `rsvps` and `invitationSends` as in database-design.md (`modules/rsvp/`, `modules/invitations/`), with their indexes. Guests gain `reminderCount`. No TTLs beyond `rateLimits`.
+- Guest links: `POST /api/guests/:id/regenerate-link` (the old link dies at once; the guest counts as not yet invited) and `GET /api/guests/:id/link`. Tokens are the 3A ones (hash + AES-GCM copy); never logged.
+- Public RSVP, no login: `GET /api/public/invite/:token` (couple, date, ONLY the guest's events with address, map link and dress code, current answers, `rsvpOpen`; first visit sets `inviteOpenedAt`) and `POST .../rsvp` (all-or-nothing, 1 to 20 people when attending, 403 `RSVP_CLOSED` after the cut-off day, `EVENT_NOT_INVITED`). Saves run in a transaction that also writes the guest, so a guest or event deleted at the same moment cannot leave an orphan answer. Unknown, malformed or regenerated tokens give one identical 404 `LINK_NOT_FOUND`; 20 misses in 15 minutes per address give 429; saves are limited to 20 an hour per guest. Replies are `no-store`.
+- Sending (any Admin or Manager): `POST/GET /api/invitations/sends`, `GET .../sends/:id`, `POST .../next` (20 emails per call; atomic claim with `lockedUntil`, so two calls never double-send, 409 `SEND_BUSY`; progress saved after every email; pauses as `paused_daily_limit` at the cap and resumes later or from another member), `retry-failed`, `cancel`, `GET /api/invitations/quota`, `preview` and `test`. Reminders go only to guests with an unanswered event. Guests without an email are counted in `send.skippedNoEmail` and left out.
+- Email templates (`modules/invitations/templates.ts`): English, HTML plus plain text, every value escaped, https-only map links, one-line subjects, no tracking pixel.
+- Numbers: one counting module (`modules/rsvp/counts.ts`) feeds `GET /api/events` (new `rsvp` per event), `GET /api/events/:id`, the delete preview (real RSVP count), the guest list (`rsvp.replied`, `answers`, the working `rsvpStatus` filter) and the dashboard (`rsvp: { overall, byEvent }`).
+- Clean-up: deleting guests, events or the wedding removes their RSVPs and fixes up sends; the guest delete message mentions the RSVPs.
+- Settings page: one new field, the RSVP cut-off date (the API and its "not after the wedding date" rule already existed).
+- Tests: `tests/modules/rsvp.test.ts` and `tests/modules/invitations.test.ts` (only the SMTP transport is mocked). Suite: 448 tests.
 
 ### Phase 3, step 3B: Guests page and import wizard
 
@@ -45,6 +80,7 @@ A manual pass over the guests API (template, preview, commit, file refusals, dup
 - Clearer refusals: old `.xls` and UTF-16 "Unicode Text" say what to save as; "too large" states the 2 MB limit. The delete-event modal says the guests stay on the guest list.
 - Manual-test fixes (browser walkthrough, desktop and 390px): the bulk "Assign / Remove" popover ran off the left edge on phones (now as wide as the bar below `sm`); "Showing 51–75 of 51" flashed while a page loaded (the text now follows the rows on screen); a file with a header and no rows moved on to an empty Review step (now refused on the Upload step).
 - Code review of 3B fixed: the row menu (Edit/Delete) was clipped by the list card on short lists (now `fixed`, flips upward near the bottom); a client-side link to /guests while filtered kept the old filters (the page now follows the address bar); a long non-Latin name made the paging cursor longer than the API accepts (limit 600); a link to a deleted event showed an empty list (the filter is dropped); an empty page from a cached cursor now falls back to the last page; selected guests that leave the page are unselected on refresh; the server walk to page N skips totals and duplicate tags on the pages it passes (`listGuests(..., { light: true })`); the summary tolerates a guest without `eventIds`; an empty zip entry no longer rejects an .xlsx. Left as designed: guest writes touch their events' `updatedAt` inside the transaction (this is what makes a concurrent event delete collide, see 3A), and the zip check inflates synchronously under the 20 MB cap.
+- Fonts are files, not Google downloads: `npm run dev` failed every page with "Module not found: @vercel/turbopack-next/internal/font/google/font" whenever fonts.gstatic.com could not be reached (offline, VPN, firewall). Instrument Serif, Inter, Cormorant Garamond and Plus Jakarta Sans (Latin subset, one variable file each where Google serves one) now live in `assets/fonts/` and load through `next/font/local` in `app/layout.tsx` and `app/(marketing)/layout.tsx`. The look is unchanged; dev and build no longer need the network for fonts.
 - Rule for 3B: commit trusts the `eventIds` it is sent, so the page must send only rows the preview marked valid (an unknown event name is reported by preview, not re-checked by commit).
 - Code review fixes: the household filter is exact and case-sensitive like the household dropdown; a UTF-8 BOM no longer hides the `name` header in the Windows-1252 fallback; the list's count and page now load together.
 - Tests: 1 new in `tests/modules/guests.test.ts` (369 in all).
@@ -219,6 +255,8 @@ Approved changes or choices not obvious from the design docs. Newest first.
 
 | Date | Decision |
 | --- | --- |
+| Nov 13, 2026 | 4A QA: no invitation or reminder can start after the RSVP cut-off day (change the cut-off to send again); emails carry "Please reply by {date}." when a cut-off exists; the public link lookup checks the token before the miss limit, so only unknown links are limited (api-design.md updated). |
+| Nov 13, 2026 | Phase 4A, where the brief and the docs differ (api-design wins): the public RSVP save is `POST` only (no `PUT`); the RSVP cut-off must not be after the **wedding date** (as the API already did), not after the last event; "opened" means the guest opened their link (`inviteOpenedAt`), with no tracking pixel, so a mail scanner that fetches links can mark it early; `skippedNoEmail` is inside `send`. Additions to the docs: `eventIds` may be left out when starting a send (every event each guest is invited to); a paused send also blocks a new one; guests get `reminderCount`; the guest list and event list carry RSVP data; rate-limit keys `invite-miss:ip:<ip>` (20 misses per 15 minutes, only misses count) and `test-email:<weddingId>` (10 test emails an hour). Progress is saved after every email (not once per batch) so a crash can repeat at most one email. A reminder goes to anyone with an unanswered event, including guests who were never emailed an invitation. The dashboard RSVP card UI is not rewired yet (4C); its data is real. |
 | Nov 10, 2026 | Guests, from the 3A brief where it differs from the docs: a duplicate email or phone is a warning, so the `{ weddingId, email }` index is partial but **not unique** and `GUEST_EMAIL_EXISTS` is unused; create and update answer 200 `{ saved: false, duplicates }` until `confirmDuplicates: true` is sent. The import `events` column is separated by **semicolons** (not commas). Import commit takes `onDuplicate: skip \| add` (api-design said `skip \| update`; merging is not built) and answers `{ created, skipped, invalid }`. The import route stays `import/preview` (the brief called it "validate"). Added `POST /api/guests/bulk-delete` and `GET /api/guests/households`. Phone normalisation and the unkept original typing are our interpretation of "Digits, spaces and `+`". |
 | Nov 10, 2026 | The guest list cursor is a keyset (the last guest's sort value and id), so guests added or deleted while someone scrolls cannot repeat or skip a row (it was an offset first). `rsvpStatus` is in the contract now but until Phase 4 only `not_replied` matches anyone; `inviteStatus` is `not_sent` for every guest. The dashboard's "Add your guests" checklist item stays `built: false` until the Guests page exists, because it links to a placeholder. |
 | Nov 9, 2026 | First deploy: Preview deployments get their own address, so writes there fail the Origin check (`APP_URL` is one fixed address). Production variables are set for the Production scope only, so a preview never touches the production database. Indexes are created by hand with `db:indexes` before the first signup (production has `autoIndex` off). |
@@ -262,6 +300,8 @@ Approved changes or choices not obvious from the design docs. Newest first.
 
 ## Known issues and notes
 
+- Run Vitest from a path whose drive letter matches the project's (`cd E:/...`, not `cd e:/...`): with the other case it loads two copies of itself and every test file fails with "Vitest failed to find the runner".
+- Invitation emails carry no wedding-website link until Phase 7 builds the site.
 - The test suite starts an in-memory MongoDB, which can exceed Vitest's default 10 s hook timeout on a slow machine. If `beforeAll` times out, run `npx vitest run --hookTimeout=120000 --testTimeout=60000`.
 - Reset emails can't be received locally until `GMAIL_USER` and `GMAIL_APP_PASSWORD` are set in `.env.local`. The reset link is deliberately never logged (CLAUDE.md: never log a token).
 - The reset link's token stays in the address bar while the page is open. Removing it would make a page refresh show "link expired", so it was left as is.

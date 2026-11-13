@@ -16,6 +16,7 @@ import {
   MINUTE,
   RateLimit,
   recordHit,
+  reserve,
 } from "@/lib/rate-limit";
 import { emptyDb, resetDb } from "../helpers";
 
@@ -118,5 +119,18 @@ describe("canLimitByIp()", () => {
     vi.stubEnv("NODE_ENV", "production");
     expect(canLimitByIp("unknown")).toBe(true);
     vi.unstubAllEnvs();
+  });
+});
+
+describe("reserve", () => {
+  it("tells a refused request to wait until the window reopens, not a fixed hour", async () => {
+    await reserve("k:res", 2, 15 * MINUTE);
+    await reserve("k:res", 2, 15 * MINUTE);
+    const err = (await reserve("k:res", 2, 15 * MINUTE).catch((e) => e)) as ApiError;
+    expect(err.code).toBe("RATE_LIMITED");
+    expect(err.retryAfterSeconds).toBeGreaterThan(14 * 60);
+    expect(err.retryAfterSeconds).toBeLessThanOrEqual(15 * 60);
+    // The refused request gave its place back.
+    expect(await RateLimit.countDocuments({ key: "k:res" })).toBe(2);
   });
 });

@@ -3,6 +3,7 @@ import { type Types } from "mongoose";
 import { connectDb, inTransaction } from "@/lib/db";
 import { ApiError } from "@/lib/errors";
 import { toObjectId } from "@/lib/ids";
+import { rsvpCountsByEvent } from "@/modules/rsvp/counts";
 import { Wedding } from "@/modules/weddings/model";
 import { eventDependents, guestCounts, type RsvpCounts, rsvpCounts } from "./dependents";
 import { type EventItem, IMPACT_KEYS, type Impact } from "./format";
@@ -22,7 +23,7 @@ export type EventView = EventItem;
 
 type EventDoc = EventAttrs & { _id: unknown };
 
-function toEventView(e: EventDoc, guestCount: number): EventView {
+function toEventView(e: EventDoc, guestCount: number, rsvp?: EventView["rsvp"]): EventView {
   return {
     id: String(e._id),
     name: e.name,
@@ -36,6 +37,7 @@ function toEventView(e: EventDoc, guestCount: number): EventView {
     ...(e.notes ? { notes: e.notes } : {}),
     ...(e.youtubeLink ? { youtubeLink: e.youtubeLink } : {}),
     guestCount,
+    ...(rsvp ? { rsvp } : {}),
   };
 }
 
@@ -59,11 +61,17 @@ export async function listEvents(weddingId: string): Promise<EventView[]> {
   await connectDb();
   const wid = toObjectId(weddingId);
   const events = await Event.find({ weddingId: wid }).sort({ date: 1, time: 1, _id: 1 }).lean();
-  const counts = await guestCounts(
-    wid,
-    events.map((e) => e._id),
-  );
-  return events.map((e) => toEventView(e, counts.get(String(e._id)) ?? 0));
+  const ids = events.map((e) => e._id);
+  const answers = await rsvpCountsByEvent(wid, ids);
+  return events.map((e) => {
+    const c = answers.get(String(e._id))!;
+    return toEventView(e, c.invited, {
+      attending: c.attending,
+      declined: c.declined,
+      notReplied: c.notReplied,
+      headcount: c.headcount,
+    });
+  });
 }
 
 /** The next events from `today` on (today included), in date and time order. */

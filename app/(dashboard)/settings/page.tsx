@@ -16,6 +16,7 @@ export default async function SettingsPage() {
         groomName: wedding.groomName,
         weddingDate: wedding.weddingDate,
         slug: wedding.slug,
+        rsvpCutoffDate: wedding.rsvpCutoffDate,
       }}
       isAdmin={role === "admin"}
       today={todayIST()}
