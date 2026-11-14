@@ -79,6 +79,7 @@ export async function getQuota(): Promise<Quota> {
 type WeddingForEmail = {
   brideName: string;
   groomName: string;
+  weddingDate: string;
   slug: string;
   rsvpCutoffDate?: string | null;
 };
@@ -93,6 +94,7 @@ function emailFor(
     kind,
     brideName: wedding.brideName,
     groomName: wedding.groomName,
+    weddingDate: wedding.weddingDate,
     guestName: guest.name,
     ...(wedding.rsvpCutoffDate ? { replyBy: wedding.rsvpCutoffDate } : {}),
     events,
@@ -122,10 +124,32 @@ const toEmailEvent = (e: {
   ...(e.dressCode ? { dressCode: e.dressCode } : {}),
 });
 
+/**
+ * For a reminder, only the events the guest has not answered yet: they need nothing more about the
+ * others. An invitation lists every event the guest is invited to.
+ */
+async function eventsToList<T extends { _id: Types.ObjectId }>(
+  kind: SendKind,
+  wid: Types.ObjectId,
+  guestId: Types.ObjectId,
+  events: T[],
+): Promise<T[]> {
+  if (kind !== "reminder" || events.length === 0) return events;
+  const answered = await Rsvp.find({
+    weddingId: wid,
+    guestId,
+    eventId: { $in: events.map((e) => e._id) },
+  })
+    .select("eventId")
+    .lean();
+  const done = new Set(answered.map((a) => String(a.eventId)));
+  return events.filter((e) => !done.has(String(e._id)));
+}
+
 async function loadGuestEmail(wid: Types.ObjectId, guestId: string, kind: SendKind) {
   const gid = toObjectId(guestId);
   const [wedding, guest] = await Promise.all([
-    Wedding.findById(wid).select("brideName groomName slug rsvpCutoffDate").lean(),
+    Wedding.findById(wid).select("brideName groomName weddingDate slug rsvpCutoffDate").lean(),
     Guest.findOne({ _id: gid, weddingId: wid })
       .select("+inviteTokenEnc name email eventIds")
       .lean(),
@@ -140,7 +164,10 @@ async function loadGuestEmail(wid: Types.ObjectId, guestId: string, kind: SendKi
       fields: { guestId: "This guest is not invited to any event yet." },
     });
   }
-  return { guest, rendered: emailFor(kind, wedding, guest, events.map(toEmailEvent)) };
+  // A preview of a reminder for someone who has answered everything still shows their events.
+  const unanswered = await eventsToList(kind, wid, gid, events);
+  const listed = unanswered.length > 0 ? unanswered : events;
+  return { guest, rendered: emailFor(kind, wedding, guest, listed.map(toEmailEvent)) };
 }
 
 /** The email a guest would receive, as HTML (docs: GET /api/invitations/preview). */
@@ -405,7 +432,7 @@ async function runBatch(
   const batch = pending.slice(0, Math.min(BATCH_SIZE, quota));
 
   const [wedding, events] = await Promise.all([
-    Wedding.findById(wid).select("brideName groomName slug rsvpCutoffDate").lean(),
+    Wedding.findById(wid).select("brideName groomName weddingDate slug rsvpCutoffDate").lean(),
     Event.find({ weddingId: wid, _id: { $in: send.eventIds } })
       .select(EVENT_FIELDS)
       .sort({ date: 1, time: 1, _id: 1 })
@@ -432,11 +459,14 @@ async function runBatch(
     const guest = await Guest.findOne({ _id: gid, weddingId: wid })
       .select("+inviteTokenEnc name email eventIds")
       .lean();
-    const mine = guest
+    const invited = guest
       ? events.filter((e) => guest.eventIds.some((id) => String(id) === String(e._id)))
       : [];
-    // A guest deleted since the send started, or taken off every event of it, is simply passed
-    // over: nothing to send, nothing failed.
+    // A reminder lists only what the guest has not answered, read now, so a reply sent a moment
+    // ago is not asked for again.
+    const mine = guest ? await eventsToList(send.kind, wid, gid, invited) : [];
+    // A guest deleted since the send started, taken off every event of it, or (for a reminder)
+    // who has answered everything since, is simply passed over: nothing to send, nothing failed.
     if (!guest || mine.length === 0) {
       await record({ $pull: { guestIds: gid } });
       continue;

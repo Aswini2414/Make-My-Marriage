@@ -231,7 +231,7 @@ describe("sending in batches", () => {
     expect(mailA.html).toContain(`http://localhost:3000/i/${a.token}`);
     expect(mailA.text).not.toContain(b.token);
     expect(mailA.text).not.toContain("/w/"); // no website link until Phase 7
-    expect(mailA.subject).toBe("You're invited to the wedding of Priya and Ravi");
+    expect(mailA.subject).toBe("You are invited to Priya & Ravi's wedding");
     expect(mailA.html).not.toMatch(/<img|<script/i);
     expect(mailA.from).toEqual({ name: "Make My Marriage", address: "sender@example.com" });
   });
@@ -650,7 +650,7 @@ describe("access", () => {
 
   it("the preview shows one guest's email and the test goes to the member only", async () => {
     const { userId, weddingId, haldi } = await setup();
-    const g = await makeGuest(weddingId, [haldi._id], { name: "Lakshmi <b>Rao</b>" });
+    const g = await makeGuest(weddingId, [haldi._id], { name: "<b>Lakshmi</b> Rao" });
     const res = await previewRoute(
       await request(`/api/invitations/preview?guestId=${g.guest._id}&kind=reminder`, { userId }),
       NO_CTX,
@@ -659,8 +659,8 @@ describe("access", () => {
     expect(res.headers.get("cache-control")).toBe("no-store");
     const body = await res.json();
     expect(body.subject).toMatch(/^Reminder: /);
-    expect(body.html).toContain("Lakshmi &lt;b&gt;Rao&lt;/b&gt;");
-    expect(body.html).not.toContain("<b>Rao</b>");
+    expect(body.html).toContain("&lt;b&gt;Lakshmi&lt;/b&gt;");
+    expect(body.html).not.toContain("<b>Lakshmi</b>");
     expect(body.html).toContain(g.token);
     expect(sendMailSpy).not.toHaveBeenCalled();
 
@@ -694,6 +694,7 @@ describe("the email template", () => {
     kind: "invite" as const,
     brideName: "Priya",
     groomName: "Ravi",
+    weddingDate: "2027-02-14",
     guestName: "Lakshmi",
     websiteUrl: "http://localhost:3000/w/priya-weds-ravi",
     inviteUrl: "http://localhost:3000/i/abc",
@@ -737,15 +738,16 @@ describe("the email template", () => {
       "",
     ]) {
       const mail = renderInvitationEmail({ ...base, events: [{ ...base.events[0]!, mapLink }] });
-      expect(mail.html, mapLink).not.toContain("View on map");
-      expect(mail.text, mapLink).not.toContain("Map:");
+      expect(mail.html, mapLink).not.toContain("Open in Maps");
+      expect(mail.text, mapLink).not.toContain("Open in Maps");
     }
     const ok = renderInvitationEmail({
       ...base,
       events: [{ ...base.events[0]!, mapLink: "https://maps.example.com/p" }],
     });
     expect(ok.html).toContain('href="https://maps.example.com/p"');
-    expect(ok.text).toContain("Map: https://maps.example.com/p");
+    expect(ok.html).toContain("Open in Maps");
+    expect(ok.text).toContain("Open in Maps: https://maps.example.com/p");
 
     const split = renderInvitationEmail({
       ...base,
@@ -753,9 +755,7 @@ describe("the email template", () => {
       groomName: "Ra\nvi",
     });
     expect(split.subject).not.toMatch(/[\r\n]/);
-    expect(split.subject).toBe(
-      "You're invited to the wedding of Pri Bcc: x@evil.example and Ra vi",
-    );
+    expect(split.subject).toBe("You are invited to Pri Bcc: x@evil.example & Ra vi's wedding");
   });
 
   it("has a plain-text part with the same facts, and reads differently for a reminder", () => {
@@ -860,6 +860,7 @@ describe("QA fixes", () => {
       kind: "invite" as const,
       brideName: "Asha",
       groomName: "Ravi",
+      weddingDate: "2027-02-14",
       guestName: "Lakshmi",
       events: [{ name: "Haldi", date: "2027-02-11", time: "10:00", venueName: "Hall" }],
       websiteUrl: "https://a.example/w/x",
@@ -911,6 +912,7 @@ describe("QA review fixes", () => {
       kind: "invite",
       brideName: "A",
       groomName: "B",
+      weddingDate: "2027-02-14",
       guestName: "G",
       events: [{ name: "Haldi", date: "2027-02-11", time: "10:00", venueName: "Hall" }],
       websiteUrl: "https://a.example/w/x",
