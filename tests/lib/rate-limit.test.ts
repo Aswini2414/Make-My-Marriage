@@ -69,20 +69,20 @@ describe("rate limits", () => {
 describe("sendMail daily cap", () => {
   const mail = { to: "a@example.com", subject: "s", html: "<p>h</p>", text: "h" };
 
-  it("sends and counts each email under gmail:daily", async () => {
+  it("sends and counts each email under email:daily", async () => {
     await sendMail(mail);
     expect(sendMailSpy).toHaveBeenCalledTimes(1);
     expect(sendMailSpy.mock.calls[0]![0].from).toEqual({
       name: "Make My Marriage",
       address: "sender@example.com",
     });
-    expect(await RateLimit.countDocuments({ key: "gmail:daily" })).toBe(1);
+    expect(await RateLimit.countDocuments({ key: "email:daily" })).toBe(1);
   });
 
   it("answers EMAIL_CAP_REACHED at 450 and sends nothing", async () => {
     await RateLimit.insertMany(
       Array.from({ length: 450 }, () => ({
-        key: "gmail:daily",
+        key: "email:daily",
         expiresAt: new Date(Date.now() + HOUR),
       })),
     );
@@ -93,20 +93,28 @@ describe("sendMail daily cap", () => {
   it("never goes over the cap when many emails are sent at once", async () => {
     await RateLimit.insertMany(
       Array.from({ length: 448 }, () => ({
-        key: "gmail:daily",
+        key: "email:daily",
         expiresAt: new Date(Date.now() + HOUR),
       })),
     );
     const results = await Promise.allSettled(Array.from({ length: 6 }, () => sendMail(mail)));
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(2);
     expect(sendMailSpy).toHaveBeenCalledTimes(2);
-    expect(await RateLimit.countDocuments({ key: "gmail:daily" })).toBe(450);
+    expect(await RateLimit.countDocuments({ key: "email:daily" })).toBe(450);
   });
 
-  it("does not count an email that failed to send", async () => {
+  it("does not count an email the provider refused", async () => {
+    sendMailSpy.mockRejectedValueOnce(
+      Object.assign(new Error("450 try later"), { responseCode: 450 }),
+    );
+    await expect(sendMail(mail)).rejects.toMatchObject({ name: "MailError", kind: "temporary" });
+    expect(await RateLimit.countDocuments({ key: "email:daily" })).toBe(0);
+  });
+
+  it("still counts an email whose outcome is unknown, since it may have been sent", async () => {
     sendMailSpy.mockRejectedValueOnce(new Error("SMTP down"));
-    await expect(sendMail(mail)).rejects.toThrow("SMTP down");
-    expect(await RateLimit.countDocuments({ key: "gmail:daily" })).toBe(0);
+    await expect(sendMail(mail)).rejects.toMatchObject({ name: "MailError", kind: "failed" });
+    expect(await RateLimit.countDocuments({ key: "email:daily" })).toBe(1);
   });
 });
 

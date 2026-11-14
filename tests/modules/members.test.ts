@@ -233,7 +233,39 @@ describe("POST /api/members/invites", () => {
     const { admin } = await team();
     sendMailSpy.mockRejectedValueOnce(new Error("smtp down"));
     const res = await invite(admin);
-    expect(res.status).toBe(500);
+    // Not a bare 500: the person is told it is not right now, and to try again.
+    expect(res.status).toBe(503);
+    expect((await errorOf(res)).code).toBe("EMAIL_UNAVAILABLE");
+    expect(res.headers.get("retry-after")).toBe("60");
+    expect(await MemberInvite.countDocuments()).toBe(0);
+  });
+
+  it("tells the Admin when the provider refuses the address, and leaves no invite behind", async () => {
+    const { admin } = await team();
+    sendMailSpy.mockRejectedValueOnce(
+      Object.assign(new Error("550 5.1.1 anil@example.com unknown"), {
+        responseCode: 550,
+        response: "550 5.1.1 anil@example.com unknown",
+      }),
+    );
+    const res = await invite(admin);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("VALIDATION_FAILED");
+    expect(body.error.fields.email).toMatch(/couldn't send an email to that address/);
+    expect(JSON.stringify(body)).not.toContain("5.1.1");
+    expect(await MemberInvite.countDocuments()).toBe(0);
+  });
+
+  it("answers 'not right now' when our email settings are refused, without the reason", async () => {
+    const { admin } = await team();
+    sendMailSpy.mockRejectedValueOnce(
+      Object.assign(new Error("535 key re_SECRET refused"), { code: "EAUTH", responseCode: 535 }),
+    );
+    const res = await invite(admin);
+    expect(res.status).toBe(503);
+    expect(res.headers.get("retry-after")).toBe("300");
+    expect(JSON.stringify(await res.json())).not.toMatch(/re_SECRET|535|EAUTH/);
     expect(await MemberInvite.countDocuments()).toBe(0);
   });
 
@@ -241,7 +273,7 @@ describe("POST /api/members/invites", () => {
     const { admin } = await team();
     await RateLimit.create(
       Array.from({ length: 450 }, () => ({
-        key: "gmail:daily",
+        key: "email:daily",
         expiresAt: new Date(Date.now() + 3_600_000),
       })),
     );
@@ -289,7 +321,7 @@ describe("resending and cancelling invites", () => {
       }),
       withId(sent.id),
     );
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
     expect((await call(acceptInfo, await request(`/api/members/accept?token=${old}`))).status).toBe(
       200,
     );

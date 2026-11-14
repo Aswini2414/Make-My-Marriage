@@ -312,7 +312,7 @@ describe("POST /api/auth/forgot-password", () => {
     await createUser();
     await RateLimit.insertMany(
       Array.from({ length: 450 }, () => ({
-        key: "gmail:daily",
+        key: "email:daily",
         expiresAt: new Date(Date.now() + 3_600_000),
       })),
     );

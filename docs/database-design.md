@@ -234,7 +234,7 @@ One batched send of invitations or reminders, with its progress.
 
 **Next batch:** the next 20 guests are those in `guestIds` that are in neither `sentGuestIds` nor `failedGuestIds`. Progress is `sentGuestIds` plus `failedGuestIds` against the length of `guestIds`.
 
-**Daily cap:** before each batch, the server adds up emails sent across all of the app's sends in the last 24 hours. Every sent email is logged with a timestamp in the `rateLimits` collection under the key `gmail:daily`, so the count is one query.
+**Daily cap:** before each batch, the server adds up emails sent across all of the app's sends in the last 24 hours. Every sent email is logged with a timestamp in the `rateLimits` collection under the key `email:daily`, so the count is one query.
 
 **Size:** a wedding of 1,000 guests gives three arrays of up to 1,000 ObjectIds, about 36 KB in all. That is well under MongoDB's 16 MB document limit.
 
@@ -399,7 +399,7 @@ One document per counted action: a login attempt, an RSVP save, an upload reques
 | `upload:<qrCodeId>:<ip>` | Upload URL requests | 10 | 10 minutes |
 | `test-email:<weddingId>` | Test emails sent from the Invitations page | 10 | 1 hour |
 | `invite-miss:ip:<ip>` | Guest-link lookups with an unknown or regenerated token (only misses count) | 20 | 15 minutes |
-| `gmail:daily` | Every email the app sends: invitations, reminders, member invites, password resets | 450 | 24 hours |
+| `email:daily` | Every email the app sends: invitations, reminders, member invites, password resets | `EMAIL_DAILY_CAP` (90 with SMTP, 450 with the Gmail fallback) | 24 hours |
 
 **How a check works:**
 
@@ -409,7 +409,7 @@ One document per counted action: a login attempt, an RSVP save, an upload reques
 
 The IP address comes from Vercel's `x-forwarded-for` header. Keys never hold passwords or tokens.
 
-**Size:** at the Gmail cap, `gmail:daily` holds at most 450 small documents at a time, and the TTL index clears the rest. The whole collection stays at a few thousand documents.
+**Size:** at the daily cap, `email:daily` holds at most the cap small documents at a time, and the TTL index clears the rest. The whole collection stays at a few thousand documents.
 
 ## Indexes
 

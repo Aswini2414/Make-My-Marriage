@@ -206,7 +206,7 @@ The app is one Next.js app in TypeScript with MongoDB Atlas, using free-tier ser
 | Database | MongoDB (Atlas free tier) with Mongoose | All wedding data |
 | Auth | JWT with bcrypt-hashed passwords | Login, sessions, password reset |
 | Photo storage | Cloudflare R2 | Store photos and receipts, compressed in the browser before upload |
-| Email | Nodemailer with Gmail SMTP | Invitations, RSVP reminders, password reset |
+| Email | Nodemailer with an SMTP provider (Resend; Gmail as a fallback) | Invitations, RSVP reminders, password reset |
 | QR codes | `qrcode` npm package | Printable upload QR codes |
 | Excel and CSV | `exceljs` and `papaparse` | Guest import, Money exports |
 | Hosting | Vercel, one deploy for the whole app | Free hosting for a learning project |

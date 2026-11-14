@@ -17,7 +17,7 @@ This document describes how version 1 of Make My Marriage is built. It turns the
 | Validation | Zod on every form and API input | One schema checks both the browser and the server. |
 | Login | Our own email and password login with JWT, no auth library | Simple, and fully understood. |
 | Photos and receipts | Cloudflare R2, private bucket | 10 GB free and no download fees, which suits a busy gallery. |
-| Email | Gmail SMTP through Nodemailer, with an App Password | Free, no domain needed, about 500 recipients a day. |
+| Email | Any SMTP provider through Nodemailer: Resend from our own domain (makemymarriage.cyou) in production; Gmail with an App Password still works as a fallback | Resend's free plan allows about 100 emails a day and about 3,000 a month. Gmail allows about 500 a day. One shared daily cap (`EMAIL_DAILY_CAP`) stays below the provider's limit. |
 | Hosting | Vercel free plan | Built for Next.js, no server to manage. |
 | Organisation | Code grouped by module | Each module's pages, API and models live together. |
 
@@ -29,7 +29,7 @@ This document describes how version 1 of Make My Marriage is built. It turns the
 
 ## Architecture
 
-The whole product is one Next.js app. Pages and the API live in the same codebase and deploy together to Vercel. The app talks to three outside services: MongoDB Atlas for data, Gmail SMTP for email, and Cloudflare R2 for files.
+The whole product is one Next.js app. Pages and the API live in the same codebase and deploy together to Vercel. The app talks to three outside services: MongoDB Atlas for data, an SMTP email provider (Resend), and Cloudflare R2 for files.
 
 &#91;embedded content: system architecture · 1 app, 3 services\]
 
@@ -106,7 +106,7 @@ make-my-marriage/
 │   ├── db.ts                   cached MongoDB connection
 │   ├── access.ts               membership and Admin checks
 │   ├── r2.ts                   signed upload and view URLs
-│   ├── mailer.ts               Nodemailer with Gmail SMTP
+│   ├── mailer.ts               Nodemailer with any SMTP provider (settings in lib/env.ts), pacing and the daily cap
 │   └── tokens.ts               random tokens for invites, RSVP, QR
 ├── proxy.ts                    redirects to login without a valid session (Next.js 16 name for middleware.ts)
 └── .env.local                  secrets, never committed
@@ -308,13 +308,13 @@ Every database query then filters by `membership.weddingId`. A small wrapper in 
 
 ### Sending invitations in batches
 
-Gmail allows roughly 500 recipients a day, and a single Vercel request can't run for long. So the browser drives the sending in small batches, and the server records progress after each one.
+The email provider allows only so many emails a day (Resend's free plan about 100, Gmail about 500) and a few a second, and a single Vercel request can't run for long. So the browser drives the sending in small batches, and the server records progress after each one.
 
 1. A member picks the guests, the events, and invite or reminder, then clicks **Send**.
 2. `POST /api/invitations/sends` creates an `invitationSends` record listing every guest to email, with status `in_progress`.
 3. The browser calls `POST /api/invitations/sends/:id/next` in a loop. Each call sends the next **20 emails** through Nodemailer, records who succeeded or failed, and returns the progress.
 4. The page shows a progress bar, such as "250 of 400 sent".
-5. Before each batch, the server counts emails sent by this app in the last 24 hours. At **450**, a safety margin under Gmail's limit, it stops and sets the status to `paused_daily_limit`. The page says "Daily limit reached. Resume tomorrow."
+5. Before each batch, the server counts emails sent by this app in the last 24 hours. At `EMAIL_DAILY_CAP` (90 with Resend's free plan, 450 with Gmail: always below the provider's limit), it stops and sets the status to `paused_daily_limit`. The page says "Daily limit reached. Resume tomorrow."
 6. If the member closes the tab, the send just pauses. Opening Invitations shows a **Resume** button for any send in progress.
 7. Failed addresses are listed at the end with a **Retry failed** button.
 
@@ -368,7 +368,8 @@ Each email is built from one English template. It includes the couple's names, t
 | Vercel | Free plan, connected to the GitHub repo. Every push to `main` deploys; every pull request gets a preview link | Set the function region to Mumbai (`bom1`), close to the database |
 | MongoDB Atlas | Free M0 cluster in the Mumbai region if offered, otherwise Singapore | Separate databases for development and production. Allow Vercel's access with a database user and password |
 | Cloudflare R2 | One private bucket per environment, such as `mmm-dev` and `mmm-prod` | API token limited to that bucket. CORS allows `PUT` and `GET` from the app's own address only |
-| Gmail | A dedicated account with 2-step verification and an App Password | Used only for sending. Never your personal Gmail |
+| Resend (email) | The domain `makemymarriage.cyou` verified with SPF, DKIM, a bounce MX record and a DMARC record, and a Sending access API key limited to that domain | Used only for sending, over SMTP. A separate key for production and for local. Steps in docs/deployment.md |
+| Gmail (deprecated fallback) | A dedicated account with 2-step verification and an App Password | Used only when `SMTP_HOST` is not set. Never your personal Gmail |
 
 ### Environment variables
 
@@ -381,8 +382,12 @@ Kept in `.env.local` for development and in Vercel's project settings for produc
 | `TOKEN_ENCRYPTION_KEY` | 32-byte key for encrypting guest invitation and QR tokens |
 | `APP_URL` | The app's base address, used in email links |
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | R2 access |
-| `GMAIL_USER`, `GMAIL_APP_PASSWORD` | Sending account |
-| `EMAIL_DAILY_CAP` | Daily send stop, default `450` |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM_ADDRESS` | The sending account (Resend: `smtp.resend.com`, `465`, `resend`, an API key, `invitations@makemymarriage.cyou`) |
+| `EMAIL_FROM_NAME`, `EMAIL_REPLY_TO` | Optional From name and Reply-To address |
+| `EMAIL_DAILY_CAP` | Daily send stop for every email the app sends, shared by all weddings. Default `90` with SMTP, `450` with Gmail. Keep it below the provider's own limit |
+| `EMAIL_SENDS_PER_SECOND` | Optional, default `2` |
+| `EMAIL_DEV_REDIRECT` | Development and tests only: every email goes to this one address. Ignored when `NODE_ENV` is `production` |
+| `GMAIL_USER`, `GMAIL_APP_PASSWORD` | Deprecated fallback, used only when `SMTP_HOST` is not set |
 
 ### Cached database connection
 
@@ -403,7 +408,7 @@ Kept in `.env.local` for development and in Vercel's project settings for produc
 
 | Limit | Value | How the app stays within it |
 | --- | --- | --- |
-| Gmail sending | About 500 recipients a day | Daily cap of 450 and batched sending that resumes the next day |
+| Email sending | Resend free: about 100 a day, about 3,000 a month, and a low rate per second. Gmail: about 500 a day | The daily cap stays below the daily limit, sends are spaced to 2 a second, a rate-limit reply pauses the send, and batched sending resumes later. The monthly total is not counted |
 | Vercel request body | About 4.5 MB | Files upload straight to R2, never through the app |
 | R2 free storage | 10 GB across all weddings | Browser compression, and a per-wedding cap such as 2 GB, tracked through `photos.sizeBytes` |
 | Atlas free cluster | 512 MB | Only text data in MongoDB. Files stay in R2 |

@@ -18,7 +18,7 @@ Read @AGENTS.md: this is Next.js 16. Check `node_modules/next/dist/docs/` before
 
 - Next.js 16.4 App Router, React 19, TypeScript 6 (strict), Node 24.
 - Tailwind CSS 4: theme tokens live in `app/globals.css` under `@theme`. There is no tailwind.config.
-- Mongoose, Zod 4, jose (JWT), Nodemailer (Gmail SMTP), `@aws-sdk/client-s3` for Cloudflare R2, exceljs, papaparse, qrcode, browser-image-compression. jszip arrives in Phase 8.
+- Mongoose, Zod 4, jose (JWT), Nodemailer (Resend over SMTP; Gmail as a fallback), `@aws-sdk/client-s3` for Cloudflare R2, exceljs, papaparse, qrcode, browser-image-compression. jszip arrives in Phase 8.
 - **bcryptjs, not bcrypt**: an approved change from the docs, to avoid native builds on Windows and Vercel. Cost 12.
 - No auth libraries and no UI component libraries. Our own components live in `components/`.
 - Next 16 specifics: `proxy.ts`, not middleware.ts. `params`, `cookies()` and `headers()` are async. Use the global `PageProps<"/route">`, `LayoutProps` and `RouteContext<"/api/route">` types.
@@ -57,11 +57,11 @@ Read @AGENTS.md: this is Next.js 16. Check `node_modules/next/dist/docs/` before
 
 - Never commit `.env.local` or any secret. Every new environment variable goes in `.env.example` and `lib/env.ts`.
 - Permission checks always happen on the server. Checks in the UI are only for display.
-- These are rate-limited through the `rateLimits` collection: login, signup, forgot-password, RSVP, upload URLs, and every email sent (`gmail:daily`).
+- These are rate-limited through the `rateLimits` collection: login, signup, forgot-password, RSVP, upload URLs, and every email sent (`email:daily`).
 
 ## Known limitations (v1)
 
-- **One Gmail account is shared by every wedding**, with a single cap of 450 emails a day (`EMAIL_DAILY_CAP`). One large send can use up the day for all couples. Future fix: a custom domain plus a transactional email service. Don't build anything extra for it in v1.
+- **One email account is shared by every wedding**, with a single cap on emails a day (`EMAIL_DAILY_CAP`: 90 with Resend's free plan, 450 with the Gmail fallback). One large send can use up the day for all couples. Resend from our own domain is the sender; Gmail stays as a deprecated fallback. The monthly total is not counted. Don't build anything extra for it in v1.
 - QR codes are PNG only in v1.
 
 ## UI

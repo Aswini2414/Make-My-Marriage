@@ -103,7 +103,7 @@ export async function login(email: string, password: string, ip: string): Promis
 /** Emails a reset link when the account exists. Answers the same either way. */
 export async function forgotPassword(email: string, ip: string): Promise<void> {
   await connectDb();
-  // Every request for a real account sends an email from the shared Gmail quota, so one
+  // Every request for a real account sends an email from the shared daily email allowance, so one
   // address can't be used to burn it by looping over many emails.
   if (canLimitByIp(ip)) await consume(`forgot:ip:${ip}`, 10, HOUR);
   await consume(`forgot:${email}`, 3, HOUR);

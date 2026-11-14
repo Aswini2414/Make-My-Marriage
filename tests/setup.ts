@@ -5,3 +5,6 @@ process.env.APP_URL ??= "http://localhost:3000";
 process.env.GMAIL_USER ??= "sender@example.com";
 process.env.GMAIL_APP_PASSWORD ??= "test-app-password";
 process.env.EMAIL_DAILY_CAP ??= "450";
+// Sends are paced to a few a second in production; the tests send dozens, so pacing is off here
+// except in tests/lib/mailer.test.ts, which turns it on for itself.
+process.env.EMAIL_SENDS_PER_SECOND ??= "1000";

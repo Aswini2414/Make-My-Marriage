@@ -267,6 +267,7 @@ The Admin must type the website address to confirm (400 `VALIDATION_FAILED` with
 - 409 `ALREADY_MEMBER` if they're already in this wedding.
 - 409 `IN_OTHER_WORKSPACE` if they have an active membership, or a pending invite, in another wedding.
 - Counts toward the daily email cap. 429 `EMAIL_CAP_REACHED` when it's hit.
+- If the email cannot be sent, nothing is saved: 400 `VALIDATION_FAILED` with `fields.email` when the provider refuses the address, or 503 `EMAIL_UNAVAILABLE` (with `Retry-After`) when it is not possible right now. The same two answers apply to every route that sends an email (resend, `POST /api/invitations/test`).
 
 ### GET /api/members/accept?token=…
 
@@ -617,9 +618,12 @@ Sends the next 20 emails. The browser calls this repeatedly until `status` is no
 ```json
 {
   "send": { "id": "…", "status": "in_progress", "total": 400, "sent": 260, "failed": 2 },
-  "quota": { "remainingToday": 190 }
+  "quota": { "remainingToday": 190 },
+  "retryAfterSeconds": 60
 }
 ```
+
+`retryAfterSeconds` appears only when the email provider answered "not now" (a rate limit, a busy server) or refused our own settings (login, domain, account); `reason` then says which: `provider_busy` (try again shortly) or `email_setup` (the email settings need fixing, waiting alone will not help, so the page should say so). See below.
 
 | `status` after the call | Meaning | What the page does |
 | --- | --- | --- |
@@ -629,6 +633,8 @@ Sends the next 20 emails. The browser calls this repeatedly until `status` is no
 | `cancelled` | A member stopped it | Shows how many were sent |
 
 Calling `next` on a paused send resumes it once the cap allows; while the cap is still used up it answers 200 with the status still `paused_daily_limit` and sends nothing. Progress is saved after every single email, so a crash during a batch can repeat at most the one email in flight. Only one batch runs at a time: `next` first sets the send's `lockedUntil` to one minute ahead, and only if no lock is active. A second call meanwhile gets 409 `SEND_BUSY` and the page simply waits and tries again, so nobody gets two emails.
+
+**When the email provider says "not now".** Emails go out at most 2 a second (`EMAIL_SENDS_PER_SECOND`). If the provider answers a rate limit or another temporary refusal, the guest it happened on is **not** marked failed and nobody after them is tried: the batch stops, the status stays `in_progress`, and the response carries `retryAfterSeconds` and `reason` (the provider's hint, otherwise 60, never more than 900). A refusal of **our own** settings is the same, with `reason: "email_setup"` and 300 seconds, and nobody is failed: a refused login, an unverified domain, a key that may not send, or an account that may only send test emails. When the provider's own **daily or monthly allowance** is used up, the send pauses as `paused_daily_limit`, exactly like our own cap (the app counts only the day, so watch the month in the provider's dashboard). The send keeps its `lockedUntil` for that long, so a `next` call before it ends gets 409 `SEND_BUSY`; the page shows "Waiting for the email service" and calls again afterwards, and the send carries on from the same guest. A refused address (a permanent rejection) is a real failure: that guest goes to `failedGuestIds` and the rest carry on. An error whose outcome is unknown (a timeout while the email was on its way) also counts as failed and is never retried on its own, so nobody is emailed twice.
 
 ### GET /api/invitations/sends/:id
 
@@ -1238,7 +1244,8 @@ Every error code the API returns, grouped by area. The UI matches on `code`, and
 | `IMPORT_FILE_INVALID` | 400 | Not a `.csv` or `.xlsx`, missing the header row, or over 2,000 rows |
 | `SEND_IN_PROGRESS` | 409 | Starting a send while another is in progress |
 | `SEND_BUSY` | 409 | A batch for this send is already running. Try again shortly |
-| `EMAIL_CAP_REACHED` | 429 | The daily email cap is used up |
+| `EMAIL_CAP_REACHED` | 429 | The daily email cap is used up, or the provider's own daily or monthly allowance |
+| `EMAIL_UNAVAILABLE` | 503 | An email could not be sent right now (the provider is busy, our email settings are refused, or the outcome is unknown). Nothing from the provider is shown. `Retry-After` says when to try again |
 
 ### Money, vendors and tasks
 

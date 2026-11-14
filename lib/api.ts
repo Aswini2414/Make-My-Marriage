@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { ZodError, type z } from "zod";
 import { coreEnv } from "@/lib/env";
 import { ApiError, errorResponse, zodToFields } from "@/lib/errors";
+import { apiErrorFor, MailError } from "@/lib/mailer";
 import { SESSION_COOKIE, sessionCookieOptions, signSession } from "@/lib/session";
 
 const MAX_BODY_BYTES = 100_000;
@@ -26,6 +27,15 @@ export function handler<C = unknown>(fn: RouteHandler<C>): RouteHandler<C> {
         return errorResponse(
           new ApiError("VALIDATION_FAILED", undefined, { fields: zodToFields(err) }),
         );
+      }
+      if (err instanceof MailError) {
+        // The kind and a short code only: nothing from the provider, no address.
+        console.error(
+          `[api] ${req.method} ${redactPath(req.nextUrl.pathname)} email not sent`,
+          err.kind,
+          err.code,
+        );
+        return errorResponse(apiErrorFor(err));
       }
       console.error(`[api] ${req.method} ${redactPath(req.nextUrl.pathname)} failed`, err);
       return errorResponse(new ApiError("SERVER_ERROR"));

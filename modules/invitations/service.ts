@@ -3,9 +3,9 @@ import type { Types } from "mongoose";
 import { connectDb } from "@/lib/db";
 import { ApiError } from "@/lib/errors";
 import { toObjectId } from "@/lib/ids";
-import { DAILY_KEY, sendMail } from "@/lib/mailer";
+import { DAILY_KEY, MailError, sendMail } from "@/lib/mailer";
 import { DAY, HOUR, RateLimit, reserve } from "@/lib/rate-limit";
-import { mailEnv } from "@/lib/env";
+import { emailDailyCap } from "@/lib/env";
 import { decryptToken } from "@/lib/tokens";
 import { Event } from "@/modules/events/model";
 import { Guest } from "@/modules/guests/model";
@@ -66,7 +66,7 @@ export type Quota = { cap: number; usedLast24h: number; remainingToday: number }
 /** Emails the app sent in the last 24 hours (every kind), against the daily cap. */
 export async function getQuota(): Promise<Quota> {
   await connectDb();
-  const cap = mailEnv().EMAIL_DAILY_CAP;
+  const cap = emailDailyCap();
   const usedLast24h = await RateLimit.countDocuments({
     key: DAILY_KEY,
     createdAt: { $gte: new Date(Date.now() - DAY) },
@@ -193,6 +193,14 @@ export async function sendTestEmail(
     await sendMail({ to: memberEmail, ...rendered, subject: `[Test] ${rendered.subject}` });
   } catch (err) {
     await release().catch(() => {});
+    // The test goes to the member's own address and the request has no email field, so a refusal
+    // is told as a plain message about their account address (no `fields`).
+    if (err instanceof MailError && err.kind === "rejected") {
+      throw new ApiError(
+        "VALIDATION_FAILED",
+        "We couldn't send the test email to your account's email address.",
+      );
+    }
     throw err;
   }
   return { ok: true };
@@ -356,9 +364,32 @@ export async function getSend(weddingId: string, id: string) {
 
 // ---- sending the next batch ----
 
-export type BatchResult = { send: SendView; quota: { remainingToday: number } };
+export type BatchResult = {
+  send: SendView;
+  quota: { remainingToday: number };
+  /**
+   * Set when the email provider asked us to slow down: nothing is lost, the guests are still
+   * waiting, and the next call is refused (SEND_BUSY) until this many seconds have passed.
+   */
+  retryAfterSeconds?: number;
+  /**
+   * Why the send is waiting, with `retryAfterSeconds`: `provider_busy` (a rate limit, try again
+   * shortly) or `email_setup` (the email login, domain or account is refused: the settings need
+   * fixing, and waiting alone will not help).
+   */
+  reason?: WaitReason;
+};
+
+export type WaitReason = "provider_busy" | "email_setup";
+
+/** How long a send waits after the provider says "not now" when it does not say how long. */
+const DEFAULT_BACKOFF_SECONDS = 60;
+const MAX_BACKOFF_SECONDS = 15 * 60;
 
 class LockLost extends Error {}
+
+/** What a batch reports besides the send's own progress. */
+type Outcome = { retryAfterSeconds?: number; reason?: WaitReason };
 
 /**
  * Sends the next batch (up to BATCH_SIZE emails) and records progress. Only one batch of a send
@@ -395,12 +426,14 @@ export async function nextBatch(weddingId: string, id: string): Promise<BatchRes
     return { send: toView(current), quota: await remaining() };
   }
 
+  const outcome: Outcome = {};
   try {
     await runBatch(
       claimed as SendDoc,
       wid,
       () => lock,
       (next) => (lock = next),
+      outcome,
     );
   } catch (err) {
     if (!(err instanceof LockLost)) {
@@ -408,8 +441,23 @@ export async function nextBatch(weddingId: string, id: string): Promise<BatchRes
       throw err;
     }
   }
-  await releaseLock(sendId, lock);
-  return { send: toView(await findSend(wid, id)), quota: await remaining() };
+  if (outcome.retryAfterSeconds !== undefined) {
+    // Keep the claim for the wait: any call before it is over gets SEND_BUSY, and the guests that
+    // were not reached stay pending, so the send carries on from the same place afterwards.
+    await InvitationSend.updateOne(
+      { _id: sendId, lockedUntil: lock },
+      { $set: { lockedUntil: new Date(Date.now() + outcome.retryAfterSeconds * 1000) } },
+    );
+  } else {
+    await releaseLock(sendId, lock);
+  }
+  return {
+    send: toView(await findSend(wid, id)),
+    quota: await remaining(),
+    ...(outcome.retryAfterSeconds !== undefined
+      ? { retryAfterSeconds: outcome.retryAfterSeconds, reason: outcome.reason }
+      : {}),
+  };
 }
 
 const remaining = async () => ({ remainingToday: (await getQuota()).remainingToday });
@@ -422,6 +470,7 @@ async function runBatch(
   wid: Types.ObjectId,
   getLock: () => Date,
   setLock: (next: Date) => void,
+  outcome: Outcome,
 ) {
   const done = new Set([...send.sentGuestIds, ...send.failedGuestIds].map(String));
   const pending = send.guestIds.filter((g) => !done.has(String(g)));
@@ -485,6 +534,26 @@ async function runBatch(
         capReached = true;
         break;
       }
+      if (err instanceof MailError && (err.kind === "temporary" || err.kind === "setup")) {
+        // The provider said "not now" (a rate limit, a busy server), or refused our login, domain
+        // or account: the email was not accepted and it is not this guest's fault, so they are
+        // not failed and nobody after them is tried. The batch stops here and the send waits,
+        // then carries on from this same guest.
+        outcome.retryAfterSeconds = Math.min(
+          Math.max(err.retryAfterSeconds ?? DEFAULT_BACKOFF_SECONDS, 1),
+          MAX_BACKOFF_SECONDS,
+        );
+        outcome.reason = err.kind === "setup" ? "email_setup" : "provider_busy";
+        console.error(
+          `[invitations] send ${send._id} ${
+            err.kind === "setup"
+              ? "stopped: the email settings are refused"
+              : "paused by the email service"
+          }`,
+          err.code,
+        );
+        break;
+      }
       // Ids and an error code only: the message may quote the address.
       console.error(
         `[invitations] send ${send._id} guest ${gid} failed`,
@@ -504,6 +573,8 @@ async function runBatch(
         : { $set: { lastReminderSentAt: now }, $inc: { reminderCount: 1 } },
     );
   }
+
+  if (outcome.retryAfterSeconds !== undefined) return; // waiting: status and guests stay as they are
 
   const after = (await InvitationSend.findById(send._id)
     .select("guestIds sentGuestIds failedGuestIds status")

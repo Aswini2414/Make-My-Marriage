@@ -33,6 +33,7 @@ export const ERROR_STATUS = {
   SEND_IN_PROGRESS: 409,
   SEND_BUSY: 409,
   EMAIL_CAP_REACHED: 429,
+  EMAIL_UNAVAILABLE: 503,
   // Money, vendors and tasks
   UNKNOWN_CATEGORY: 400,
   GIFT_EMPTY: 400,
@@ -73,6 +74,7 @@ const DEFAULT_MESSAGES: Partial<Record<ErrorCode, string>> = {
   SEND_IN_PROGRESS: "A send is already in progress or paused. Finish or cancel it first.",
   SEND_BUSY: "Another batch is sending. Please wait a moment.",
   EMAIL_CAP_REACHED: "We've reached today's email limit. Please try again tomorrow.",
+  EMAIL_UNAVAILABLE: "We can't send email right now. Please try again in a few minutes.",
   ALREADY_MEMBER: "This person is already a member.",
   ALREADY_IN_WORKSPACE: "You're already part of a wedding workspace.",
   IN_OTHER_WORKSPACE: "This email already belongs to another wedding workspace.",

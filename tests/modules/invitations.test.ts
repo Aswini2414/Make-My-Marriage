@@ -205,7 +205,7 @@ describe("sending in batches", () => {
     expect(finished.lockedUntil).toBeUndefined();
     expect(recipients().sort()).toEqual(guests.map((g) => g.guest.email!).sort());
     expect(new Set(recipients()).size).toBe(45);
-    expect(await RateLimit.countDocuments({ key: "gmail:daily" })).toBe(45);
+    expect(await RateLimit.countDocuments({ key: "email:daily" })).toBe(45);
     expect(await Guest.countDocuments({ lastInviteSentAt: { $exists: true } })).toBe(45);
 
     // A finished send answers with where it ended and sends nothing more.
@@ -252,7 +252,7 @@ describe("sending in batches", () => {
     expect(JSON.stringify(errors.mock.calls)).not.toContain("@");
     errors.mockRestore();
     // The failed guest did not use up a daily place.
-    expect(await RateLimit.countDocuments({ key: "gmail:daily" })).toBe(4);
+    expect(await RateLimit.countDocuments({ key: "email:daily" })).toBe(4);
 
     const detail = await (
       await sendRoute(
@@ -358,7 +358,7 @@ describe("sending in batches", () => {
     // 445 of the 450 places are already used (by any email the app sent).
     await RateLimit.insertMany(
       Array.from({ length: 445 }, () => ({
-        key: "gmail:daily",
+        key: "email:daily",
         expiresAt: new Date(Date.now() + 86_400_000),
       })),
     );
@@ -380,7 +380,7 @@ describe("sending in batches", () => {
 
     // The next day (every hit is now 25 hours old) it resumes where it stopped.
     await RateLimit.collection.updateMany(
-      { key: "gmail:daily" },
+      { key: "email:daily" },
       { $set: { createdAt: new Date(Date.now() - 25 * 3_600_000) } },
     );
     const resumed = await (await next(userId, send.id)).json();
@@ -395,7 +395,7 @@ describe("sending in batches", () => {
     const { userId } = await setup(10);
     await RateLimit.insertMany(
       Array.from({ length: 447 }, () => ({
-        key: "gmail:daily",
+        key: "email:daily",
         expiresAt: new Date(Date.now() + 86_400_000),
       })),
     );
@@ -678,7 +678,7 @@ describe("access", () => {
     expect(mail.to).toMatch(/^admin-.*@example\.com$/);
     expect(mail.subject.startsWith("[Test] ")).toBe(true);
     // It counted toward the daily cap.
-    expect(await RateLimit.countDocuments({ key: "gmail:daily" })).toBe(1);
+    expect(await RateLimit.countDocuments({ key: "email:daily" })).toBe(1);
     // A guest with no events cannot be previewed.
     const lonely = await makeGuest(weddingId, []);
     const none = await previewRoute(
@@ -831,7 +831,7 @@ describe("review fixes", () => {
       );
     sendMailSpy.mockRejectedValueOnce(new Error("down"));
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    expect((await test()).status).toBe(500);
+    expect((await test()).status).toBe(503);
     errors.mockRestore();
     for (let i = 0; i < 10; i++) expect((await test()).status, `test ${i}`).toBe(200);
     const limited = await test();
@@ -920,5 +920,357 @@ describe("QA review fixes", () => {
     });
     expect(m.text).toContain("Wedding website: https://a.example/w/x");
     expect(m.html).toContain("Wedding website:");
+  });
+});
+
+describe("the email provider says 'not now'", () => {
+  const slowDown = (response = "450 4.7.1 Too many requests") =>
+    Object.assign(new Error(response), { responseCode: 450, response });
+
+  /** A transport that accepts everything except the one call that is told to slow down. */
+  function slowDownOnCall(n: number, error = slowDown()) {
+    const delivered: string[] = [];
+    let calls = 0;
+    sendMailSpy.mockReset();
+    sendMailSpy.mockImplementation(async (mail: { to: string }) => {
+      if (++calls === n) throw error;
+      delivered.push(mail.to);
+      return {};
+    });
+    return delivered;
+  }
+
+  it("pauses without failing anyone, refuses calls while waiting, then carries on exactly once each", async () => {
+    const { userId } = await setup(10);
+    const delivered = slowDownOnCall(3);
+    const logs = (["log", "warn", "error"] as const).map((m) =>
+      vi.spyOn(console, m).mockImplementation(() => {}),
+    );
+    const { send } = await started(userId, { kind: "invite" });
+
+    const first = await next(userId, send.id);
+    expect(first.status).toBe(200);
+    const body = await first.json();
+    // Two went out, the third was told "not now": nobody is failed, nobody after it was tried.
+    expect(body.send).toMatchObject({ status: "in_progress", sent: 2, failed: 0, total: 10 });
+    expect(body.retryAfterSeconds).toBe(60);
+    expect(body.reason).toBe("provider_busy");
+    expect(sendMailSpy).toHaveBeenCalledTimes(3);
+    // The refused email did not use up a daily place.
+    expect(await RateLimit.countDocuments({ key: "email:daily" })).toBe(2);
+
+    // Still waiting: another call (any member) is turned away, and sends nothing.
+    const early = await next(userId, send.id);
+    expect(early.status).toBe(409);
+    expect((await early.json()).error.code).toBe("SEND_BUSY");
+    expect(sendMailSpy).toHaveBeenCalledTimes(3);
+    const stored = (await InvitationSend.findById(send.id).lean())!;
+    expect(stored.lockedUntil!.getTime()).toBeGreaterThan(Date.now() + 30_000);
+    expect(stored.sentGuestIds).toHaveLength(2);
+    expect(stored.failedGuestIds).toHaveLength(0);
+
+    // The wait is over (and the provider has recovered): the rest goes out, the third guest included.
+    await InvitationSend.updateOne({ _id: send.id }, { lockedUntil: new Date(Date.now() - 1000) });
+    sendMailSpy.mockReset();
+    sendMailSpy.mockImplementation(async (mail: { to: string }) => {
+      delivered.push(mail.to);
+      return {};
+    });
+    const second = await (await next(userId, send.id)).json();
+    expect(second.send).toMatchObject({ status: "completed", sent: 10, failed: 0 });
+    expect(second.retryAfterSeconds).toBeUndefined();
+    // Every guest received exactly one email: no one skipped, no one twice.
+    expect(delivered).toHaveLength(10);
+    expect(new Set(delivered).size).toBe(10);
+    expect(await RateLimit.countDocuments({ key: "email:daily" })).toBe(10);
+    expect((await InvitationSend.findById(send.id).lean())!.lockedUntil).toBeUndefined();
+
+    expect(JSON.stringify(logs.flatMap((s) => s.mock.calls))).not.toContain("@");
+    logs.forEach((s) => s.mockRestore());
+  });
+
+  it("waits as long as the provider says, within limits", async () => {
+    const { userId } = await setup(3);
+    slowDownOnCall(1, Object.assign(slowDown("429 rate limited, retry after 7 seconds")));
+    const { send } = await started(userId, { kind: "invite" });
+    const body = await (await next(userId, send.id)).json();
+    expect(body.retryAfterSeconds).toBe(7);
+    expect(body.send).toMatchObject({ sent: 0, failed: 0 });
+
+    sendMailSpy.mockReset();
+    await InvitationSend.updateOne({ _id: send.id }, { lockedUntil: new Date(Date.now() - 1000) });
+    slowDownOnCall(1, slowDown("429 retry after 999999"));
+    const again = await (await next(userId, send.id)).json();
+    expect(again.retryAfterSeconds).toBe(15 * 60);
+  });
+
+  it("a rate-limit reply on a reminder pauses it the same way", async () => {
+    const { userId } = await setup(4);
+    slowDownOnCall(2);
+    const { send } = await started(userId, { kind: "reminder" });
+    const body = await (await next(userId, send.id)).json();
+    expect(body.send).toMatchObject({ kind: "reminder", sent: 1, failed: 0 });
+    expect(body.retryAfterSeconds).toBe(60);
+    // Only the one that went out was counted as a reminder.
+    expect(await Guest.countDocuments({ reminderCount: 1 })).toBe(1);
+  });
+
+  it("a refused address is a real failure: it is marked failed and the rest carry on", async () => {
+    const { userId, guests } = await setup(5);
+    const bad = guests[1]!.guest.email!;
+    const error = Object.assign(new Error(`550 5.1.1 ${bad} unknown`), {
+      responseCode: 550,
+      response: `550 5.1.1 ${bad} unknown`,
+    });
+    sendMailSpy.mockReset();
+    sendMailSpy.mockImplementation(async (mail: { to: string }) => {
+      if (mail.to === bad) throw error;
+      return {};
+    });
+    const logs = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { send } = await started(userId, { kind: "invite" });
+    const body = await (await next(userId, send.id)).json();
+    expect(body.send).toMatchObject({ status: "completed", sent: 4, failed: 1 });
+    expect(body.retryAfterSeconds).toBeUndefined();
+    expect(JSON.stringify(logs.mock.calls)).not.toContain("@");
+    logs.mockRestore();
+  });
+
+  it("a wrong API key waits instead of failing the whole list", async () => {
+    const { userId } = await setup(5);
+    sendMailSpy.mockReset();
+    sendMailSpy.mockRejectedValue(
+      Object.assign(new Error("Invalid login"), { code: "EAUTH", responseCode: 535 }),
+    );
+    const { send } = await started(userId, { kind: "invite" });
+    const body = await (await next(userId, send.id)).json();
+    expect(body.send).toMatchObject({ status: "in_progress", sent: 0, failed: 0 });
+    expect(body.retryAfterSeconds).toBe(300);
+    // The page can say the email settings are wrong, not just "busy".
+    expect(body.reason).toBe("email_setup");
+    expect(sendMailSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("an unverified domain or a test-only account stops the send without failing a single guest", async () => {
+    for (const reply of [
+      "550 The makemymarriage.cyou domain is not verified. Please verify your domain.",
+      "550 You can only send testing emails to your own email address",
+    ]) {
+      await emptyDb();
+      const { userId } = await setup(6);
+      sendMailSpy.mockReset();
+      sendMailSpy.mockRejectedValue(
+        Object.assign(new Error(reply), { responseCode: 550, response: reply }),
+      );
+      const logs = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { send } = await started(userId, { kind: "invite" });
+      const body = await (await next(userId, send.id)).json();
+      expect(body.send).toMatchObject({ status: "in_progress", sent: 0, failed: 0, total: 6 });
+      expect(body.reason).toBe("email_setup");
+      expect(body.retryAfterSeconds).toBe(300);
+      // Nobody after the first guest was tried, and no place in the daily count was used.
+      expect(sendMailSpy).toHaveBeenCalledTimes(1);
+      expect(await RateLimit.countDocuments({ key: "email:daily" })).toBe(0);
+      expect(JSON.stringify(logs.mock.calls)).not.toContain("@");
+      logs.mockRestore();
+    }
+  });
+
+  it("the provider's own daily or monthly allowance pauses the send like our cap, and fails nobody", async () => {
+    const { userId } = await setup(6);
+    let calls = 0;
+    sendMailSpy.mockReset();
+    sendMailSpy.mockImplementation(async () => {
+      if (++calls === 3) {
+        const reply = "451 You have reached your daily email sending quota";
+        throw Object.assign(new Error(reply), { responseCode: 451, response: reply });
+      }
+      return {};
+    });
+    const logs = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { send } = await started(userId, { kind: "invite" });
+    const body = await (await next(userId, send.id)).json();
+    expect(body.send).toMatchObject({ status: "paused_daily_limit", sent: 2, failed: 0, total: 6 });
+    expect(body.retryAfterSeconds).toBeUndefined();
+    // Resuming later carries on from the third guest, exactly once each.
+    sendMailSpy.mockReset();
+    sendMailSpy.mockResolvedValue({});
+    const again = await (await next(userId, send.id)).json();
+    expect(again.send).toMatchObject({ status: "completed", sent: 6, failed: 0 });
+    expect(sendMailSpy).toHaveBeenCalledTimes(4);
+    logs.mockRestore();
+  });
+
+  it("a test email to an address the provider refuses says so in plain words, without naming a field", async () => {
+    const { userId, weddingId } = await setup();
+    const g = await makeGuest(weddingId, []);
+    const haldi = await Event.findOne({ weddingId });
+    await Guest.updateOne({ _id: g.guest._id }, { eventIds: [haldi!._id] });
+    sendMailSpy.mockReset();
+    sendMailSpy.mockRejectedValue(
+      Object.assign(new Error("550 5.1.1 unknown"), {
+        responseCode: 550,
+        response: "550 5.1.1 unknown",
+      }),
+    );
+    const logs = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await testRoute(
+      await request("/api/invitations/test", {
+        method: "POST",
+        body: { guestId: String(g.guest._id), kind: "invite" },
+        userId,
+      }),
+      NO_CTX,
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.message).toBe(
+      "We couldn't send the test email to your account's email address.",
+    );
+    expect(body.error.fields).toBeUndefined();
+    logs.mockRestore();
+  });
+
+  it("a guest the provider refuses at RCPT TO is failed, and the rest of the send carries on", async () => {
+    const { userId, guests } = await setup(5);
+    const stuck = guests[2]!.guest.email!;
+    sendMailSpy.mockReset();
+    sendMailSpy.mockImplementation(async (mail: { to: string }) => {
+      if (mail.to === stuck) {
+        throw Object.assign(new Error("450 mailbox unavailable"), {
+          responseCode: 450,
+          response: "450 mailbox unavailable",
+          command: "RCPT TO",
+        });
+      }
+      return {};
+    });
+    const logs = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { send } = await started(userId, { kind: "invite" });
+    const body = await (await next(userId, send.id)).json();
+    // Not stuck in a wait: one guest failed, four sent, finished.
+    expect(body.send).toMatchObject({ status: "completed", sent: 4, failed: 1 });
+    expect(body.retryAfterSeconds).toBeUndefined();
+    logs.mockRestore();
+  });
+
+  it("a test email the provider refuses answers a plain 'not right now', not a 500", async () => {
+    const { userId, weddingId } = await setup();
+    const g = await makeGuest(weddingId, []);
+    const haldi = await Event.findOne({ weddingId });
+    await Guest.updateOne({ _id: g.guest._id }, { eventIds: [haldi!._id] });
+    sendMailSpy.mockReset();
+    sendMailSpy.mockRejectedValue(
+      Object.assign(new Error("Invalid login"), { code: "EAUTH", responseCode: 535 }),
+    );
+    const logs = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await testRoute(
+      await request("/api/invitations/test", {
+        method: "POST",
+        body: { guestId: String(g.guest._id), kind: "invite" },
+        userId,
+      }),
+      NO_CTX,
+    );
+    expect(res.status).toBe(503);
+    expect((await res.json()).error.code).toBe("EMAIL_UNAVAILABLE");
+    // The place the test used is given back.
+    expect(await RateLimit.countDocuments({ key: { $regex: "^test-email" } })).toBe(0);
+    logs.mockRestore();
+  });
+
+  it("a send cancelled while it waits stays cancelled", async () => {
+    const { userId } = await setup(4);
+    slowDownOnCall(2);
+    const { send } = await started(userId, { kind: "invite" });
+    await next(userId, send.id);
+    const res = await cancelRoute(
+      await request(`/api/invitations/sends/${send.id}/cancel`, { method: "POST", userId }),
+      ID_CTX(send.id),
+    );
+    expect((await res.json()).send.status).toBe("cancelled");
+    const after = await (await next(userId, send.id)).json();
+    expect(after.send.status).toBe("cancelled");
+  });
+});
+
+describe("reminders list only the events not answered yet", () => {
+  const answer = (weddingId: Types.ObjectId, guestId: Types.ObjectId, eventId: Types.ObjectId) =>
+    Rsvp.create({
+      weddingId,
+      guestId,
+      eventId,
+      attending: true,
+      headcount: 1,
+      respondedAt: new Date(),
+    });
+  const mailTo = (email: string) =>
+    sendMailSpy.mock.calls.map((c) => c[0]).find((m) => m.to === email) as {
+      text: string;
+      html: string;
+    };
+
+  it("sends each guest only what they have not answered", async () => {
+    const { userId, weddingId, haldi, guests } = await setup(3);
+    await answer(weddingId, guests[0]!.guest._id, haldi._id);
+    const { send } = await started(userId, { kind: "reminder" });
+    expect(send.total).toBe(3);
+    await next(userId, send.id);
+
+    const first = mailTo(guests[0]!.guest.email!);
+    expect(first.text).toContain("Wedding Hall");
+    expect(first.text).not.toContain("Haldi Hall");
+    expect(first.html).not.toContain("Haldi Hall");
+    // The others have answered nothing: both events.
+    for (const g of [guests[1]!, guests[2]!]) {
+      const m = mailTo(g.guest.email!);
+      expect(m.text).toContain("Haldi Hall");
+      expect(m.text).toContain("Wedding Hall");
+    }
+  });
+
+  it("an invitation lists every event even when some are answered", async () => {
+    const { userId, weddingId, haldi, guests } = await setup(1);
+    await answer(weddingId, guests[0]!.guest._id, haldi._id);
+    const { send } = await started(userId, { kind: "invite" });
+    await next(userId, send.id);
+    const m = mailTo(guests[0]!.guest.email!);
+    expect(m.text).toContain("Haldi Hall");
+    expect(m.text).toContain("Wedding Hall");
+  });
+
+  it("skips, without failing, a guest who answered everything after the send began", async () => {
+    const { userId, weddingId, haldi, wedding, guests } = await setup(3);
+    const { send } = await started(userId, { kind: "reminder" });
+    // Guest 2 replies to both events while the send is waiting to run.
+    await answer(weddingId, guests[1]!.guest._id, haldi._id);
+    await answer(weddingId, guests[1]!.guest._id, wedding._id);
+    const body = await (await next(userId, send.id)).json();
+    expect(body.send).toMatchObject({ status: "completed", sent: 2, failed: 0, total: 2 });
+    expect(recipients()).toEqual([guests[0]!.guest.email, guests[2]!.guest.email]);
+  });
+
+  it("the preview and the test email follow the same rule, and fall back when all are answered", async () => {
+    const { userId, weddingId, haldi, wedding, guests } = await setup(1);
+    const g = guests[0]!;
+    await answer(weddingId, g.guest._id, haldi._id);
+    const preview = async () =>
+      (
+        await (
+          await previewRoute(
+            await request(`/api/invitations/preview?guestId=${g.guest._id}&kind=reminder`, {
+              userId,
+            }),
+            NO_CTX,
+          )
+        ).json()
+      ).html as string;
+    let html = await preview();
+    expect(html).toContain("Wedding Hall");
+    expect(html).not.toContain("Haldi Hall");
+    await answer(weddingId, g.guest._id, wedding._id);
+    html = await preview(); // everything answered: the preview still shows something
+    expect(html).toContain("Haldi Hall");
+    expect(html).toContain("Wedding Hall");
   });
 });
