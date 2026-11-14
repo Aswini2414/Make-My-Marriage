@@ -31,6 +31,14 @@ const securityHeaders = [
 
 const noindex = [{ key: "X-Robots-Tag", value: "noindex, nofollow" }];
 
+// A guest's invitation page: the link is the credential, so it is never sent on as a Referer,
+// never cached, and never indexed.
+const privateLink = [
+  ...noindex,
+  { key: "Referrer-Policy", value: "no-referrer" },
+  { key: "Cache-Control", value: "no-store" },
+];
+
 const nextConfig: NextConfig = {
   // Lets a production build go to its own folder while `next dev` is running.
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
@@ -48,7 +56,7 @@ const nextConfig: NextConfig = {
       { source: "/:path*", headers: securityHeaders },
       // Public guest-facing pages are never listed by search engines.
       { source: "/w/:path*", headers: noindex },
-      { source: "/i/:path*", headers: noindex },
+      { source: "/i/:path*", headers: privateLink },
       { source: "/u/:path*", headers: noindex },
       { source: "/api/public/:path*", headers: noindex },
     ];

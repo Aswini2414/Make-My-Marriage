@@ -160,5 +160,10 @@ export function clearSession<R extends NextResponse>(res: R): R {
 
 /** The caller's IP from Vercel's x-forwarded-for header, for rate limits. */
 export function clientIp(req: Request): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  return clientIpFromHeaders(req.headers);
+}
+
+/** The same, from a headers object (a server-rendered page has `headers()`, not a request). */
+export function clientIpFromHeaders(headers: Pick<Headers, "get">): string {
+  return headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
 }

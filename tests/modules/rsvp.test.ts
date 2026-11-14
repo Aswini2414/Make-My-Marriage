@@ -152,7 +152,14 @@ describe("the guest's invitation (public GET)", () => {
       first.getTime(),
     );
     const body = JSON.parse(await (await open(lakshmi.token)).text());
-    expect(body.events[0].rsvp).toEqual({ attending: true, headcount: 3 });
+    expect(body.events[0].rsvp).toEqual({
+      attending: true,
+      headcount: 3,
+      respondedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+    });
+    // The page needs the type chip and the stepper's limit from the API.
+    expect(body.events[0].type).toBe("Haldi");
+    expect(body.maxHeadcount).toBe(20);
     expect(body.events[1].rsvp).toBeNull();
   });
 
@@ -293,7 +300,7 @@ describe("saving RSVP answers (public POST)", () => {
     // The last answers are still there, and the invitation says it is read-only.
     const body = JSON.parse(await (await open(lakshmi.token)).text());
     expect(body.wedding).toMatchObject({ rsvpCutoffDate: "2020-01-01", rsvpOpen: false });
-    expect(body.events[0].rsvp).toEqual({ attending: true, headcount: 2 });
+    expect(body.events[0].rsvp).toMatchObject({ attending: true, headcount: 2 });
   });
 
   it("answers an unknown token with 404 and checks the Origin header", async () => {
@@ -382,7 +389,7 @@ describe("a guest's link (members)", () => {
       ).status,
     ).toBe(404);
     const body = JSON.parse(await (await open(newToken)).text());
-    expect(body.events[0].rsvp).toEqual({ attending: false, headcount: 0 });
+    expect(body.events[0].rsvp).toMatchObject({ attending: false, headcount: 0 });
     // What the database holds is a hash and an encrypted copy, never the token.
     const stored = await Guest.findById(lakshmi.guest._id).select("+inviteTokenEnc").lean();
     expect(JSON.stringify(stored)).not.toContain(newToken);

@@ -9,7 +9,7 @@ import { hashToken } from "@/lib/tokens";
 import { Event } from "@/modules/events/model";
 import { Guest } from "@/modules/guests/model";
 import { Wedding } from "@/modules/weddings/model";
-import { Rsvp } from "./model";
+import { MAX_HEADCOUNT, Rsvp } from "./model";
 import { type RsvpBody, TOKEN_PATTERN } from "./schema";
 
 // What a guest can do with their personal link, no login. See "Guest-facing endpoints" in
@@ -56,6 +56,20 @@ async function guestForToken(token: string, ip: string) {
   return guest;
 }
 
+/** Only the first visit writes; a later one finds the field already set. */
+async function recordOpened(guest: { _id: Types.ObjectId; inviteOpenedAt?: Date | null }) {
+  if (guest.inviteOpenedAt) return;
+  await Guest.updateOne(
+    { _id: guest._id, inviteOpenedAt: { $exists: false } },
+    { $set: { inviteOpenedAt: new Date() } },
+  );
+}
+
+/** The invitation page's browser code reports that the guest's browser has loaded it. */
+export async function markInvitationOpened(token: string, ip: string): Promise<void> {
+  await recordOpened(await guestForToken(token, ip));
+}
+
 export type PublicInvitation = {
   guest: { name: string };
   wedding: {
@@ -66,46 +80,52 @@ export type PublicInvitation = {
     rsvpCutoffDate: string | null;
     rsvpOpen: boolean;
   };
+  /** The most people one answer can bring; the page's stepper stops here. */
+  maxHeadcount: number;
+  /** Whether the invitation is recorded as opened (so the page need not report it again). */
+  opened: boolean;
   events: {
     id: string;
     name: string;
+    type: string;
     date: string;
     time: string;
     venueName: string;
     address?: string;
     mapLink?: string;
     dressCode?: string;
-    rsvp: { attending: boolean; headcount: number } | null;
+    rsvp: { attending: boolean; headcount: number; respondedAt: string } | null;
   }[];
 };
 
 /**
  * The guest's invitation: the couple, the date, and ONLY the events this guest is invited to,
- * with their current answers. Opening it for the first time records `inviteOpenedAt`.
+ * with their current answers. Opening it for the first time records `inviteOpenedAt`, unless the
+ * caller passes `markOpened: false`: the page renders on the server with that, so a mail
+ * scanner that only fetches the HTML does not count as "opened"; the browser then calls the
+ * API route once the page has loaded.
  */
-export async function getInvitation(token: string, ip: string): Promise<PublicInvitation> {
+export async function getInvitation(
+  token: string,
+  ip: string,
+  { markOpened = true }: { markOpened?: boolean } = {},
+): Promise<PublicInvitation> {
   const guest = await guestForToken(token, ip);
   const [wedding, events, answers] = await Promise.all([
     Wedding.findById(guest.weddingId)
       .select("brideName groomName weddingDate slug rsvpCutoffDate")
       .lean(),
     Event.find({ weddingId: guest.weddingId, _id: { $in: guest.eventIds } })
-      .select("name date time venueName address mapLink dressCode")
+      .select("name type date time venueName address mapLink dressCode")
       .sort({ date: 1, time: 1, _id: 1 })
       .lean(),
     Rsvp.find({ weddingId: guest.weddingId, guestId: guest._id })
-      .select("eventId attending headcount")
+      .select("eventId attending headcount respondedAt")
       .lean(),
   ]);
   if (!wedding) throw notFound();
 
-  if (!guest.inviteOpenedAt) {
-    // Only the first visit writes; a later one finds the field already set.
-    await Guest.updateOne(
-      { _id: guest._id, inviteOpenedAt: { $exists: false } },
-      { $set: { inviteOpenedAt: new Date() } },
-    );
-  }
+  if (markOpened) await recordOpened(guest);
 
   const byEvent = new Map(answers.map((a) => [String(a.eventId), a]));
   return {
@@ -118,18 +138,27 @@ export async function getInvitation(token: string, ip: string): Promise<PublicIn
       rsvpCutoffDate: wedding.rsvpCutoffDate ?? null,
       rsvpOpen: isRsvpOpen(wedding.rsvpCutoffDate),
     },
+    maxHeadcount: MAX_HEADCOUNT,
+    opened: markOpened || !!guest.inviteOpenedAt,
     events: events.map((e) => {
       const a = byEvent.get(String(e._id));
       return {
         id: String(e._id),
         name: e.name,
+        type: e.type,
         date: e.date,
         time: e.time,
         venueName: e.venueName,
         ...(e.address ? { address: e.address } : {}),
         ...(e.mapLink ? { mapLink: e.mapLink } : {}),
         ...(e.dressCode ? { dressCode: e.dressCode } : {}),
-        rsvp: a ? { attending: a.attending, headcount: a.headcount } : null,
+        rsvp: a
+          ? {
+              attending: a.attending,
+              headcount: a.headcount,
+              respondedAt: a.respondedAt.toISOString(),
+            }
+          : null,
       };
     }),
   };

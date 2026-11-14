@@ -1079,6 +1079,7 @@ These serve guests and photographers, who never log in. They live under `/api/pu
 | GET | `/api/public/w/:slug/photos` | Public | Gallery photos, paginated, if the gallery is on |
 | GET | `/api/public/invite/:token` | Token | The guest's invitation, events and current answers |
 | POST | `/api/public/invite/:token/rsvp` | Token | Save RSVP answers |
+| POST | `/api/public/invite/:token/opened` | Token | The invitation page reports that the guest's browser has loaded it |
 | GET | `/api/public/upload/:token` | Token | Upload page details |
 | POST | `/api/public/upload/:token/urls` | Token | Signed upload URLs for a batch of photos |
 | POST | `/api/public/upload/:token/complete` | Token | Save the photos that uploaded |
@@ -1116,18 +1117,22 @@ An unknown or regenerated token always answers 404 `LINK_NOT_FOUND`, with the sa
   "guest": { "name": "Lakshmi Rao" },
   "wedding": { "brideName": "Priya", "groomName": "Ravi", "weddingDate": "2027-02-14",
                "slug": "priya-weds-ravi", "rsvpCutoffDate": "2027-02-01", "rsvpOpen": true },
+  "maxHeadcount": 20,
+  "opened": false,
   "events": [
-    { "id": "…", "name": "Reception", "date": "2027-02-14", "time": "19:00",
+    { "id": "…", "name": "Reception", "type": "Reception", "date": "2027-02-14", "time": "19:00",
       "venueName": "…", "address": "…", "mapLink": "…", "dressCode": "…",
-      "rsvp": { "attending": true, "headcount": 3 } }
+      "rsvp": { "attending": true, "headcount": 3, "respondedAt": "2027-01-02T06:30:00.000Z" } }
   ]
 }
 ```
 
 - Only the events this guest is invited to are listed.
-- `rsvp` is `null` for events not yet answered.
+- `rsvp` is `null` for events not yet answered. `respondedAt` is when the answer was saved (the page shows its day in India time).
+- `type` is the event's type, shown as a chip. `maxHeadcount` is the most people one answer can bring (the "People coming" control stops there).
 - `rsvpOpen` is false after the cut-off date.
-- Opening the page sets `inviteOpenedAt` the first time.
+- Calling this endpoint sets `inviteOpenedAt` the first time. The page at `/i/<token>` is rendered on the server **without** marking it. `opened` says whether it is recorded; when it is not, the page's browser code calls `POST /api/public/invite/:token/opened` once after load (204, no body, repeating it changes nothing), so a mail scanner that only fetches the page does not count as "opened". A scanner that runs the page's JavaScript still would, so read "opened" as "the link was opened", not "the guest read it".
+- An address that has made too many unknown-link lookups sees the same "not valid" page (a working link is never limited). The page `/i/<token>` is sent with `Referrer-Policy: no-referrer`, `Cache-Control: no-store` and `X-Robots-Tag: noindex, nofollow`. An unknown, malformed or replaced token gives the same "This link is not valid" page with HTTP 404.
 
 ### POST /api/public/invite/:token/rsvp
 

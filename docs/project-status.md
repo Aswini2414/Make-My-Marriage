@@ -1,6 +1,6 @@
 # Make My Marriage — Project Status
 
-**Last updated:** Nov 13, 2026 (4A manual-QA fixes) · **Branch:** `dev` · **Last feature commit:** Phase 4, step 4A, the invitations, sending and RSVP backend (see `git log`). Before it: 3B, the Guests page and import, and 3A, the guests backend. Before it: Phase 2D (the dashboard numbers) and the first-deploy preparation, which is only prepared, **not deployed** (see Done). 2C (tasks backend and Tasks page) is `d8c14dc`, 2A and 2B are `3eb6ea0`, Phase 1 is `715c68d`.
+**Last updated:** Nov 13, 2026 (Phase 4, step 4B) · **Branch:** `dev` · **Last feature commit:** Phase 4, step 4B, the guest invitation and RSVP page (see `git log`). Before it: 4A, the invitations, sending and RSVP backend (`fe37b69`), 3B, the Guests page and import (`ce3cbac`), and 3A, the guests backend (`dbd4595`). The first deploy to Vercel is only prepared, **not deployed** (see Done). 2C (tasks backend and Tasks page) is `d8c14dc`, 2A and 2B are `3eb6ea0`, Phase 1 is `715c68d`.
 
 This file tracks how far the build has got. It is a progress log, not a design document: the PRD, system design, database design and API design stay the source of truth for _what_ to build. Read it at the start of every session, and update it whenever a feature or phase step is finished (see [How to update](#how-to-update-this-file)).
 
@@ -13,16 +13,42 @@ This file tracks how far the build has got. It is a progress log, not a design d
 | 1. Setup and accounts | ✅ Done (1A–1E) |
 | 2. Events, tasks and dashboard | ✅ Done (2A–2D) |
 | 3. Guests | ✅ Done (3A backend, 3B Guests page and import) |
-| 4. Invitations and RSVP | 🟡 4A backend done; 4B guest invitation page and 4C Invitations page next |
+| 4. Invitations and RSVP | 🟡 4A backend and 4B guest invitation page done; 4C Invitations page next |
 | 5. Money: expenses and gifts | ⬜ Not started |
 | 6. Vendors | ⬜ Not started |
 | 7. Wedding website and live stream | ⬜ Not started |
 | 8. Photo sharing | ⬜ Not started |
 | 9. Testing and launch | ⬜ Not started |
 
-**Next up:** Phase 4, step 4B (see the 4A manual-QA notes: re-fetch after a failed save): the guest-facing invitation page at `/i/<token>` (the page for `GET /api/public/invite/:token` and `POST .../rsvp`: events, yes/no and number of people per event, read-only after the cut-off). Then 4C: the Invitations page (compose, preview, send in batches with progress and Resume, failed addresses, quota) and the dashboard RSVP card and Guests "Replied" filter in the UI (their data and API are ready). Open decision from 1D: build cover-photo upload with the files module (Phase 8), or earlier.
+**Next up:** Phase 4, step 4C: the Invitations page (compose, preview in a sandboxed iframe, send in batches with progress and Resume, failed addresses, quota; default a new invitation send to guests not yet sent and show the cut-off error next to Start, see the 4A manual-QA notes), plus the dashboard RSVP card and the Guests "Replied" filter in the UI (their data and API are ready). Open decision from 1D: build cover-photo upload with the files module (Phase 8), or earlier.
 
 ## Done
+
+### Phase 4, step 4B: the guest invitation and RSVP page (`/i/<token>`)
+
+- The page guests open from the email, no login, built for phones (390px, no horizontal scroll down to 320px) with a centred 580px column on desktop. It follows the Stitch screen "Guest Invitation and RSVP (All States)". The server loads the invitation (`getInvitation`, in-process) and `components/invitation/` draws it; the logic (which screen, validation, stepper limits, the answer payload, wording) is in `modules/rsvp/page-state.ts` so tests can call it.
+- Screens: the invitation with the form (events, then "Will you join us?" with an Attending / Not attending radio group and a "People coming" stepper, 1 to the API's `maxHeadcount`); validation (an "Incomplete reply" banner, "Answer required" on each unanswered event, focus to the first one; an API error keeps the answers); Thank you (recap, "Change my answers"); Edit ("Edit your reply", "Your last reply was saved on …", Save changes, Cancel and keep current reply); returning guests see the recap first; closed after the cut-off (lilac banner, "Your saved reply" or "No reply was recorded. Please contact the family.", "Your itinerary"); and "This link is not valid" (HTTP 404, identical for unknown, malformed and replaced tokens).
+- The public GET gained `type` on each event, `rsvp.respondedAt` and `maxHeadcount` (api-design.md updated).
+- Privacy: `/i/*` is sent with `Referrer-Policy: no-referrer`, `Cache-Control: no-store` and `X-Robots-Tag: noindex, nofollow` (`next.config.ts`); the page makes no request to any other site and uses no analytics; the token is never passed to the client as a prop (it is read from the address), never logged and never printed. The page shows nothing about other guests, the guest list, money or other weddings (tested).
+- Opening: the server render does **not** mark the invitation opened; the page's browser code calls `GET /api/public/invite/:token` once after load (the 4A note), so a scanner that only fetches the page does not count.
+- Checked in Chrome at 390, 1280 and 320px against the Stitch screens: invitation, validation, a filled form, thank-you, edit, reload (back on the recap), closed with and without a reply, not valid, a very long event name, venue and address, a cut-off passing while the page was open (the page switches to the closed view) and an event removed while it was open (plain message, the page re-reads and drops the event).
+- Colours are the app tokens only; the lowest text contrast is 5.35:1 (secondary text on ivory), error text on the muted error background is 5.9:1.
+- Tests: `tests/modules/invitation-page.test.ts` (form logic, each screen's data from a real database and the real routes, the leak check, the headers) and updated `rsvp.test.ts`. Suite: 478 tests. There is no DOM test library in the repo, so the interactive behaviour was checked by hand in Chrome.
+
+### Phase 4, step 4B: manual-QA and code-review fixes
+
+A manual pass in real Chrome (390, 320 and 1280px, a throwaway database, a real dev server) and a code review of 4B found these, now fixed:
+
+- The "Incomplete reply" banner now goes away once every event is answered (it came back only on the next try).
+- The Send button waits until the page has started in the browser. Before, a tap on a slow phone submitted the form natively, which reloaded the page and lost the answers. Without JavaScript a short note says to turn it on (the form could not be sent without it anyway).
+- An address that made 20 unknown-link lookups saw a "Too many attempts" page with HTTP 200; it now gets the same 404 "This link is not valid" page. A working link is never limited (the token is checked first), so a real guest is not affected.
+- "Opened" is reported by a small `POST /api/public/invite/:token/opened` (204), and only when the server does not have it yet (`opened` in the GET answer). Before, the browser fetched the whole invitation again on every view.
+- The page scrolls to the top after the screen has changed (save, edit, cancel), not before. Before, it ran too early and could leave a guest at the bottom of a shorter thank-you screen.
+- When the browser re-reads the invitation after a failed save, the page's answers follow it: removed events are dropped, a new event starts unanswered, typed answers are kept, and the recap gives way to the form while an event has no saved answer.
+- Small clean-ups: one `peopleText` for "1 person / 2 people"; `emptyDraft` is used by `reconcileDraft`.
+- Checked and kept: the 404 for a rate-limited unknown link (see above).
+- Tests: 3 new in `tests/modules/invitation-page.test.ts` (the opened call, `reconcileDraft`, `peopleText`).
+- Open note: a link scanner that runs JavaScript still marks a guest as opened; 4C should word the status "opened the link".
 
 ### Phase 4, step 4A: manual-QA fixes
 
@@ -255,6 +281,7 @@ Approved changes or choices not obvious from the design docs. Newest first.
 
 | Date | Decision |
 | --- | --- |
+| Nov 13, 2026 | Phase 4B, where the brief and Stitch differ (the brief wins): no place line under the date, because a wedding has no place field (date only, never invented); real event names and a type chip (no "Ceremony"); "3 events"; the footer is a quiet "Make My Marriage" with no tagline; the Attending / Not attending control fills the card on desktop; a guest who never replied sees "No reply was recorded. Please contact the family." after the cut-off. Stitch's compact itinerary is the same full event card as the invitation. A returning guest sees the recap only when **every** event has an answer; with some unanswered (a new event) they get the form with the saved answers filled in. The desktop column sits on the plain ivory page (Stitch's grey canvas and phone frame are presentation only). The page needs no new dependency and no icon font: the few new icons are inline SVG. |
 | Nov 13, 2026 | 4A QA: no invitation or reminder can start after the RSVP cut-off day (change the cut-off to send again); emails carry "Please reply by {date}." when a cut-off exists; the public link lookup checks the token before the miss limit, so only unknown links are limited (api-design.md updated). |
 | Nov 13, 2026 | Phase 4A, where the brief and the docs differ (api-design wins): the public RSVP save is `POST` only (no `PUT`); the RSVP cut-off must not be after the **wedding date** (as the API already did), not after the last event; "opened" means the guest opened their link (`inviteOpenedAt`), with no tracking pixel, so a mail scanner that fetches links can mark it early; `skippedNoEmail` is inside `send`. Additions to the docs: `eventIds` may be left out when starting a send (every event each guest is invited to); a paused send also blocks a new one; guests get `reminderCount`; the guest list and event list carry RSVP data; rate-limit keys `invite-miss:ip:<ip>` (20 misses per 15 minutes, only misses count) and `test-email:<weddingId>` (10 test emails an hour). Progress is saved after every email (not once per batch) so a crash can repeat at most one email. A reminder goes to anyone with an unanswered event, including guests who were never emailed an invitation. The dashboard RSVP card UI is not rewired yet (4C); its data is real. |
 | Nov 10, 2026 | Guests, from the 3A brief where it differs from the docs: a duplicate email or phone is a warning, so the `{ weddingId, email }` index is partial but **not unique** and `GUEST_EMAIL_EXISTS` is unused; create and update answer 200 `{ saved: false, duplicates }` until `confirmDuplicates: true` is sent. The import `events` column is separated by **semicolons** (not commas). Import commit takes `onDuplicate: skip \| add` (api-design said `skip \| update`; merging is not built) and answers `{ created, skipped, invalid }`. The import route stays `import/preview` (the brief called it "validate"). Added `POST /api/guests/bulk-delete` and `GET /api/guests/households`. Phone normalisation and the unkept original typing are our interpretation of "Digits, spaces and `+`". |
@@ -299,6 +326,8 @@ Approved changes or choices not obvious from the design docs. Newest first.
 | Nov 11, 2026 | Guests page: the "Replied" filter is hidden until Phase 4 (the API parameter stays). The page size is 25 and page numbers are kept in the address bar. The "Possible duplicate" tag and the stat cards needed two small backend additions (`duplicate` on list rows, `GET /api/guests/summary`). Import review counts a possible duplicate as its own group (Ready + Need fixing + Possible duplicates = all rows), and "Skip possible duplicates" is on by default. The import's "Done" step is a third step added to the Stitch two-step design. Example sample wording uses no sides ("Reddy family", not "Friends (Bride)"). |
 
 ## Known issues and notes
+
+- **Invitation page and server logs:** the guest's link is a path (`/i/<token>`). Our own code never logs it (`redactPath`), but the platform's request log (`next dev` in the terminal, Vercel's request logs) shows request paths, so treat those logs as sensitive. Next's page payload also repeats the address segment, which the browser already has. A rate-limited visitor (20 unknown links in 15 minutes) sees a calm "Too many attempts" page with status 200.
 
 - Run Vitest from a path whose drive letter matches the project's (`cd E:/...`, not `cd e:/...`): with the other case it loads two copies of itself and every test file fails with "Vitest failed to find the runner".
 - Invitation emails carry no wedding-website link until Phase 7 builds the site.
